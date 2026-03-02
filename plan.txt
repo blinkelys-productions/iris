@@ -1,0 +1,424 @@
+PROJECT: Next-Generation Lighting Console Platform
+VERSION: Master Plan v2 (OnPC-First Strategy)
+TARGET: Linux-first professional lighting ecosystem
+
+
+============================================================
+1. VISION
+============================================================
+
+Build a professional, Linux-first lighting control platform
+capable of competing with high-end desks such as grandMA3.
+
+The system must:
+
+- Be console-ready in the future
+- Run fully offline
+- Support unlimited universes (processing limited)
+- Support redundancy and distributed processing
+- Scale to festival and touring environments
+- Be deterministic and real-time safe
+- Be pro-focused
+- Support both busking and timecode workflows
+
+This is a 5–8 year long-term vision.
+
+Immediate goal:
+Deliver a stable, usable OnPC prototype within 12–18 months.
+
+
+============================================================
+2. DEVELOPMENT STRATEGY
+============================================================
+
+Phase 0: OnPC First
+
+- Build the full engine first
+- Ignore physical hardware initially
+- Design hardware abstraction layer from day one (stubbed)
+- Focus on reliability, engine correctness, and workflow
+
+Console hardware development begins only after engine stability.
+
+
+============================================================
+3. CORE TECHNOLOGY STACK
+============================================================
+
+Core Engine:
+- Language: Rust
+- Deterministic timing
+- Multi-threaded
+- No garbage collection
+- Memory safe
+
+UI:
+- Qt (native desktop)
+- Dark mode only
+- Multi-window
+- Multi-monitor support
+- Component-based layout system
+
+Rendering:
+- Vulkan backend (via wgpu in Rust)
+- 3D postponed until later phases
+
+Scripting:
+- Lua only
+- Macro system
+- Sandboxed execution
+
+Build System:
+- Cargo (Rust)
+- CMake if required for Qt integration
+
+Operating Systems:
+- Primary: Linux
+- Secondary: Windows
+- macOS: optional
+
+
+============================================================
+4. HIGH-LEVEL ARCHITECTURE
+============================================================
+
+Layered system:
+
+[ UI Layer ]
+[ Command + Lua Layer ]
+[ Show Engine ]
+[ Real-Time Core ]
+[ Protocol Layer ]
+[ Hardware Abstraction Layer (stubbed) ]
+
+Critical rule:
+UI must never block real-time output.
+
+
+============================================================
+5. THREAD MODEL
+============================================================
+
+Threads:
+
+1. UI Thread
+2. Command Parser Thread
+3. Show Logic Thread
+4. DMX Output Thread (highest priority)
+5. Network Thread
+6. Auto-save Thread
+
+Future additions:
+7. Render Thread (3D)
+8. Session Sync Thread (redundancy)
+
+DMX thread must remain deterministic and independent.
+
+
+============================================================
+6. PROGRAMMING MODEL
+============================================================
+
+Core concepts:
+
+- Fixtures
+- Attributes
+- Presets
+- Recipes
+- Sequences
+- Cues
+- Executors
+- Pages
+- Layouts
+- Tracking (per-sequence toggle)
+- HTP/LTP priorities
+- Worlds
+- Command line syntax
+- Lua macros
+- Step phasers
+- Time phasers
+- BPM sync
+- SMPTE / MTC / LTC
+
+No node-based programming.
+
+Workflow inspired by grandMA3 but modernized.
+
+
+============================================================
+7. PROTOCOL SUPPORT
+============================================================
+
+Mandatory:
+
+- Art-Net
+- sACN
+
+Planned:
+
+- RDM
+- MIDI
+- OSC
+- LTC
+- MTC
+- Network timecode
+
+Unlimited universes in theory (hardware limited).
+
+Launch target:
+Minimum 8 universes.
+
+
+============================================================
+8. SHOWFILE SYSTEM
+============================================================
+
+Format:
+
+- Single ".show" file
+- Binary format
+- Embedded metadata (JSON allowed internally)
+- ZSTD compression
+
+Auto backup system:
+
+show.show
+show.show.backup1
+show.show.backup2
+
+Must support:
+
+- GDTF fixture profiles
+- MVR import/export (later)
+- Custom fixture editor
+
+
+============================================================
+9. ONPC PROTOTYPE PLAN
+============================================================
+
+PROTOTYPE GOAL:
+
+Be able to:
+
+- Patch fixtures
+- Store presets
+- Create sequences
+- Assign to virtual executors
+- Run cues
+- Output Art-Net
+- Run a small real show
+
+Stable and deterministic.
+No 3D.
+No hardware.
+No redundancy.
+
+
+------------------------------------------------------------
+Prototype Phase 1 – Engine Core (Months 1–4)
+------------------------------------------------------------
+
+Deliverable:
+Headless engine via CLI.
+
+Features:
+
+- Fixture data model
+- Patch system
+- Attribute representation (float 0.0–1.0)
+- Universe mapping
+- Art-Net output (8 universes)
+- Basic cue engine
+- Tracking logic
+- HTP/LTP resolution
+- Command line parser
+- Basic Lua macro support
+
+Milestone:
+
+Commands like:
+
+patch fixture 1 at 1.1
+store preset 1
+create sequence 1
+go+
+
+Should produce real Art-Net output.
+
+
+------------------------------------------------------------
+Prototype Phase 2 – Basic UI (Months 4–8)
+------------------------------------------------------------
+
+Deliverable:
+Minimal usable OnPC interface.
+
+Features:
+
+- Fixture sheet
+- Preset pool
+- Sequence pool
+- Sequence sheet
+- Virtual executors
+- Page system
+- Layout saving
+- Autosave
+
+Goal:
+Run a small gig entirely from OnPC.
+
+
+------------------------------------------------------------
+Prototype Phase 3 – Advanced Engine (Months 8–12)
+------------------------------------------------------------
+
+Features:
+
+- Full phaser engine (step + time)
+- Recipe system
+- BPM sync
+- Timecode support
+- Improved undo system
+- Deep tracking control
+- Performance optimization
+
+Engine must now be stable enough for real-world testing.
+
+
+------------------------------------------------------------
+Prototype Phase 4 – Stabilization (Months 12–18)
+------------------------------------------------------------
+
+Focus:
+
+- Crash resilience
+- Autosave robustness
+- Stress testing
+- 32+ universe scaling tests
+- Memory profiling
+- Latency benchmarking
+
+No new features.
+Only stability and performance.
+
+
+============================================================
+10. FUTURE PHASES
+============================================================
+
+Phase 5 – Distributed Processing
+
+- Processing nodes
+- Multi-console sessions
+- Redundancy
+- Failover logic
+- Multi-NIC support
+
+Phase 6 – Hardware Console
+
+- Hardware abstraction fully implemented
+- USB HID support
+- Encoder/fader integration
+- Linux console OS image
+- Multi-screen control
+
+Phase 7 – 3D Visualizer
+
+- Vulkan renderer
+- Beam simulation
+- Gobos
+- Framing shutters
+- Volumetrics
+- glTF support
+- NDI panel support (future)
+
+Must exceed MA3D quality.
+
+
+============================================================
+11. PERFORMANCE TARGETS
+============================================================
+
+Launch:
+
+- Minimum 8 universes
+- Stable 44hz output
+- Low CPU usage
+- Deterministic fades
+
+Expansion:
+
+- Unlimited universes via processing nodes
+- 100+ universes realistic target
+- 60fps 3D render (future)
+
+Memory:
+
+- 16GB recommended
+- 32GB maximum target
+
+
+============================================================
+12. LICENSING STRATEGY
+============================================================
+
+Core open source preferred.
+
+Business model:
+
+- Hardware unlock for output
+- OnPC limited universe count
+- Consoles unlimited
+- No subscription
+- No cloud dependency
+
+Must function fully offline.
+
+
+============================================================
+13. CORE PRIORITIES
+============================================================
+
+1. Stability
+2. Usability (pro-focused UX)
+3. Performance
+4. Clean architecture
+5. Scalability
+
+If it cannot be trusted on a festival,
+it has failed.
+
+
+============================================================
+14. KNOWN RISKS
+============================================================
+
+- Phaser engine complexity
+- Tracking edge cases
+- Priority stack correctness
+- Distributed state replication
+- Long-term maintainability
+
+Complexity must be controlled from day one.
+
+
+============================================================
+15. IMMEDIATE NEXT STEP
+============================================================
+
+Start with:
+
+- Rust workspace
+- Engine-only CLI prototype
+- Art-Net output
+- Minimal cue engine
+
+No UI.
+No 3D.
+No hardware.
+
+Build light output first.
+
+
+END OF FILE - From blinkelys: this is 100% AI generated and also the first commit :D
