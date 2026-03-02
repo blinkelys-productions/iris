@@ -1,0 +1,45 @@
+# ==== Rust ====
+/target/               # compiled output
+**/*.rs.bk             # backup files
+Cargo.lock             # lockfile (optional to ignore in libraries)
+**/*.rmeta             # rust metadata files
+
+# ==== IDEs ====
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# VS Code
+.vscode/
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# ==== OS generated files ====
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.nfs*
+
+# ==== Logs ====
+*.log
+
+# ==== Misc ====
+*.swp
+*.tmp
