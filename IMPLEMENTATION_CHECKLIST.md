@@ -14,7 +14,9 @@ This checklist turns the product specification in [whatarewedoing.md](./whatarew
 - [x] Define the shared show model and keep persistent show data separate from runtime state.
 - [x] Define stable IDs, typed commands, events, and actionable domain errors.
 - [x] Support fixture create, edit, move, replace, and delete operations while preserving identity where appropriate.
-- [ ] Add fixture-definition import/export, including GDTF; support MVR import/export.
+- [x] Import single-fixture, single-break GDTF profiles into the patch model and preserve the original GDTF archive unchanged for export.
+- [x] Import/export MVR 1.4-1.6 fixture patches with embedded GDTF archives; report when scene data is not represented.
+- [ ] Preserve and edit full GDTF/MVR data, including multi-break patching, fixture transforms, geometry, and other scene objects.
 - [ ] Export a printable patch list as PDF.
 - [ ] Add patch editing and conflict reporting to the UI.
 
