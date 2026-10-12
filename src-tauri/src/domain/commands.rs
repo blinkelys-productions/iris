@@ -10,7 +10,10 @@ pub struct CommandEnvelope {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum DomainCommand {
-    PatchFixture {
+    AddFixture {
+        fixture: FixtureInstance,
+    },
+    EditFixture {
         fixture: FixtureInstance,
     },
     MoveFixture {
@@ -18,7 +21,11 @@ pub enum DomainCommand {
         universe: u16,
         start_address: u16,
     },
-    UnpatchFixture {
+    ReplaceFixture {
+        fixture_id: StableId,
+        replacement: FixtureInstance,
+    },
+    DeleteFixture {
         fixture_id: StableId,
     },
     SelectFixtures {
@@ -43,7 +50,13 @@ pub struct EventEnvelope {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum DomainEvent {
-    FixturePatched {
+    FixtureAdded {
+        fixture_id: StableId,
+    },
+    FixtureEdited {
+        fixture_id: StableId,
+    },
+    FixtureReplaced {
         fixture_id: StableId,
     },
     FixtureMoved {
@@ -51,7 +64,7 @@ pub enum DomainEvent {
         universe: u16,
         start_address: u16,
     },
-    FixtureUnpatched {
+    FixtureDeleted {
         fixture_id: StableId,
     },
     SelectionChanged {
@@ -92,7 +105,7 @@ mod tests {
             event_id: StableId::new("event-1").unwrap(),
             caused_by: StableId::new("command-1").unwrap(),
             revision: 4,
-            event: DomainEvent::FixturePatched {
+            event: DomainEvent::FixtureAdded {
                 fixture_id: StableId::new("fixture-1").unwrap(),
             },
         };

@@ -3,7 +3,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use super::ids::StableId;
+use super::{errors::DomainError, ids::StableId};
 
 pub const DMX_SLOTS_PER_UNIVERSE: u16 = 512;
 
@@ -183,6 +183,68 @@ struct Assignment {
 }
 
 impl Patch {
+    pub fn add_fixture(&mut self, fixture: FixtureInstance) -> Result<(), DomainError> {
+        let mut fixtures = self.fixtures.clone();
+        fixtures.push(fixture);
+        self.replace_fixtures(fixtures)
+    }
+
+    pub fn edit_fixture(&mut self, fixture: FixtureInstance) -> Result<(), DomainError> {
+        let mut fixtures = self.fixtures.clone();
+        let Some(existing) = fixtures.iter_mut().find(|item| item.id == fixture.id) else {
+            return Err(DomainError::FixtureNotFound {
+                fixture_id: fixture.id,
+            });
+        };
+        *existing = fixture;
+        self.replace_fixtures(fixtures)
+    }
+
+    pub fn move_fixture(
+        &mut self,
+        fixture_id: &StableId,
+        universe: u16,
+        start_address: u16,
+    ) -> Result<(), DomainError> {
+        let mut fixtures = self.fixtures.clone();
+        let Some(fixture) = fixtures.iter_mut().find(|item| &item.id == fixture_id) else {
+            return Err(DomainError::FixtureNotFound {
+                fixture_id: fixture_id.clone(),
+            });
+        };
+        fixture.universe = universe;
+        fixture.start_address = start_address;
+        self.replace_fixtures(fixtures)
+    }
+
+    pub fn replace_fixture(
+        &mut self,
+        fixture_id: &StableId,
+        mut replacement: FixtureInstance,
+    ) -> Result<(), DomainError> {
+        replacement.id = fixture_id.clone();
+        self.edit_fixture(replacement)
+    }
+
+    pub fn remove_fixture(&mut self, fixture_id: &StableId) -> Result<(), DomainError> {
+        let mut fixtures = self.fixtures.clone();
+        let Some(index) = fixtures.iter().position(|item| &item.id == fixture_id) else {
+            return Err(DomainError::FixtureNotFound {
+                fixture_id: fixture_id.clone(),
+            });
+        };
+        fixtures.remove(index);
+        self.replace_fixtures(fixtures)
+    }
+
+    fn replace_fixtures(&mut self, fixtures: Vec<FixtureInstance>) -> Result<(), DomainError> {
+        let mut candidate = self.clone();
+        candidate.fixtures = fixtures;
+        candidate.validate().map_err(DomainError::InvalidPatch)?;
+        self.fixtures = candidate.fixtures;
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), Vec<PatchValidationError>> {
         let mut errors = Vec::new();
         let mut definitions_by_id = HashMap::new();
@@ -483,5 +545,92 @@ mod tests {
 
         show_patch.fixtures[0].number = 1;
         assert!(show_patch.validate().is_err());
+    }
+
+    #[test]
+    fn adds_and_edits_fixtures_without_changing_other_fixtures() {
+        let first = fixture("fixture-1", 1, 1, 1);
+        let second = fixture("fixture-2", 2, 1, 10);
+        let mut show_patch = patch(4, vec![first, second.clone()]);
+
+        let mut edited = second;
+        edited.name = "Renamed".to_owned();
+        edited.start_address = 20;
+        show_patch.edit_fixture(edited.clone()).unwrap();
+
+        assert_eq!(show_patch.fixtures[0], fixture("fixture-1", 1, 1, 1));
+        assert_eq!(show_patch.fixtures[1], edited);
+
+        show_patch
+            .add_fixture(fixture("fixture-3", 3, 1, 30))
+            .unwrap();
+        assert_eq!(show_patch.fixtures.len(), 3);
+    }
+
+    #[test]
+    fn rejects_invalid_fixture_changes_without_mutating_the_patch() {
+        let original = patch(
+            4,
+            vec![
+                fixture("fixture-1", 1, 1, 1),
+                fixture("fixture-2", 2, 1, 10),
+            ],
+        );
+        let mut show_patch = original.clone();
+
+        assert!(matches!(
+            show_patch.add_fixture(fixture("fixture-3", 2, 1, 20)),
+            Err(DomainError::InvalidPatch(_))
+        ));
+        assert_eq!(show_patch, original);
+
+        assert!(matches!(
+            show_patch.move_fixture(&id("fixture-2"), 1, 4),
+            Err(DomainError::InvalidPatch(_))
+        ));
+        assert_eq!(show_patch, original);
+    }
+
+    #[test]
+    fn moves_replaces_and_removes_fixtures_by_stable_id() {
+        let mut show_patch = patch(4, vec![fixture("fixture-1", 1, 1, 1)]);
+
+        show_patch.move_fixture(&id("fixture-1"), 2, 10).unwrap();
+        assert_eq!(show_patch.fixtures[0].universe, 2);
+        assert_eq!(show_patch.fixtures[0].start_address, 10);
+
+        let mut replacement = fixture("replacement-id", 7, 3, 25);
+        replacement.name = "Replacement fixture".to_owned();
+        show_patch
+            .replace_fixture(&id("fixture-1"), replacement)
+            .unwrap();
+
+        let replaced = &show_patch.fixtures[0];
+        assert_eq!(replaced.id, id("fixture-1"));
+        assert_eq!(replaced.number, 7);
+        assert_eq!(replaced.universe, 3);
+        assert_eq!(replaced.start_address, 25);
+
+        show_patch.remove_fixture(&id("fixture-1")).unwrap();
+        assert!(show_patch.fixtures.is_empty());
+    }
+
+    #[test]
+    fn fixture_changes_report_missing_ids() {
+        let mut show_patch = patch(4, vec![]);
+        let error = show_patch.move_fixture(&id("missing"), 1, 1).unwrap_err();
+
+        assert_eq!(
+            error,
+            DomainError::FixtureNotFound {
+                fixture_id: id("missing"),
+            }
+        );
+        assert_eq!(
+            show_patch.remove_fixture(&id("missing")),
+            Err(DomainError::FixtureNotFound {
+                fixture_id: id("missing"),
+            })
+        );
     }
 }
