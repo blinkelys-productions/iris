@@ -147,7 +147,7 @@ A fixture instance should reference a fixture definition and contain:
 - Optional physical position and orientation.
 - Optional visualization model and geometry configuration.
 
-The fixture definition describes the capabilities of a fixture. The fixture instance describes a particular physical or virtual fixture in a show.
+The fixture definition describes the capabilities of a fixture. The fixture instance describes a particular physical or virtual fixture in a show. They must be able to fetch from GDTF, mvr, export to mvr and also a simple patch list to a .pdf
 
 ### 3.3 Attribute
 
