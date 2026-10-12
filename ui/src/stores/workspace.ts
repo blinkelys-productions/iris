@@ -1,7 +1,6 @@
 import { computed, reactive } from 'vue'
 
 export type WindowKind =
-  | 'patch'
   | 'livePatch'
   | 'fixtureTypes'
   | 'programmer'
@@ -40,7 +39,6 @@ export interface MenuEntry {
 }
 
 export const menuEntries: MenuEntry[] = [
-  { kind: 'patch', title: 'Patch', description: 'Fixtures, universes and addresses', icon: 'patch', available: true },
   { kind: 'livePatch', title: 'Live Patch', description: 'Patch while outputting', icon: 'patch', available: false },
   { kind: 'fixtureTypes', title: 'Fixture Types', description: 'Profiles and modes', icon: 'fixtureTypes', available: false },
   { kind: 'programmer', title: 'Programmer', description: 'Select and edit attributes', icon: 'programmer', available: false },
@@ -65,17 +63,16 @@ export interface ModuleGroup {
 export const moduleGroups: ModuleGroup[] = [
   { title: 'Pools', kinds: ['groups', 'fixtures'] },
   { title: 'Presets', kinds: ['presetDimmer', 'presetPosition', 'presetColor', 'presetBeam', 'presetFocus', 'presetControl'] },
-  { title: 'Windows', kinds: ['dmxChart', 'patch', 'livePatch'] },
+  { title: 'Windows', kinds: ['dmxChart', 'livePatch'] },
 ]
 
 export const GRID_COLS = 12
-export const GRID_ROWS = 8
+export const GRID_ROWS = 4
 
 const defaultSize: Partial<Record<WindowKind, [number, number]>> = {
-  patch: [12, 8],
-  livePatch: [12, 5],
-  fixtures: [4, 4],
-  dmxChart: [6, 4],
+  livePatch: [12, 3],
+  fixtures: [4, 2],
+  dmxChart: [6, 2],
 }
 
 export type MenuPage = 'menu' | 'masters' | 'screens' | 'console' | 'help'
@@ -112,7 +109,9 @@ export const workspace = reactive({
   powerOpen: false,
   poweredOff: false,
   activeView: 0,
+  page: 'workspace' as 'workspace' | 'patch',
   picker: null as { col: number; row: number } | null,
+  moduleSettings: null as number | null,
   views: Array.from({ length: INITIAL_VIEWS }, newView),
   showName: 'Untitled Show',
   user: 'Admin',
@@ -120,11 +119,16 @@ export const workspace = reactive({
 
 export const currentView = computed(() => workspace.views[workspace.activeView]!)
 
-// Plain Patch edits offline, so the programmer panel is hidden; Live Patch keeps it.
-export const showBottomPanel = computed(() => {
-  const kinds = currentView.value.windows.map((window) => window.kind)
-  return !kinds.includes('patch') || kinds.includes('livePatch')
-})
+// Patch is a separate page that edits offline, so it hides the programmer panel and view strip.
+export const onPatchPage = computed(() => workspace.page === 'patch')
+
+export function openPatchPage() {
+  workspace.page = 'patch'
+  workspace.menuOpen = false
+  workspace.powerOpen = false
+  workspace.picker = null
+  workspace.moduleSettings = null
+}
 
 export function titleFor(kind: WindowKind) {
   return menuEntries.find((entry) => entry.kind === kind)?.title ?? kind
@@ -137,16 +141,21 @@ function isFree(view: View, col: number, row: number, w: number, h: number) {
   )
 }
 
+// Pools need one label cell plus at least one content cell, in any orientation.
+function minimumCells(kind: WindowKind) {
+  return kind === 'groups' || kind === 'fixtures' || kind.startsWith('preset') ? 2 : 1
+}
+
 export function isCellFree(col: number, row: number) {
   return isFree(currentView.value, col, row, 1, 1)
 }
 
-// Tries the default size first, then smaller footprints, largest area first.
 function place(kind: WindowKind, at?: { col: number; row: number }) {
   const view = currentView.value
   const [dw, dh] = defaultSize[kind] ?? [4, 3]
   const sizes: [number, number][] = []
-  for (let w = dw; w >= 1; w--) for (let h = dh; h >= 1; h--) sizes.push([w, h])
+  for (let w = dw; w >= 1; w--)
+    for (let h = dh; h >= 1; h--) if (w * h >= minimumCells(kind)) sizes.push([w, h])
   sizes.sort((a, b) => b[0] * b[1] - a[0] * a[1])
 
   for (const [w, h] of sizes) {
@@ -154,20 +163,26 @@ function place(kind: WindowKind, at?: { col: number; row: number }) {
       if (isFree(view, at.col, at.row, w, h)) return { col: at.col, row: at.row, w, h }
       continue
     }
-    if (w < 3 || h < 2) continue
     for (let row = 0; row < GRID_ROWS; row++)
       for (let col = 0; col < GRID_COLS; col++) if (isFree(view, col, row, w, h)) return { col, row, w, h }
   }
-  return at ? { col: at.col, row: at.row, w: 1, h: 1 } : { col: 0, row: 0, w: dw, h: dh }
+  return null
+}
+
+export function canPlaceModule(kind: WindowKind, at?: { col: number; row: number }) {
+  return place(kind, at) !== null
 }
 
 export function addWindow(kind: WindowKind, at?: { col: number; row: number }) {
   const view = currentView.value
-  const win: PlacedWindow = { id: nextWindowId++, kind, ...place(kind, at) }
+  const placement = place(kind, at)
+  if (!placement) return false
+  const win: PlacedWindow = { id: nextWindowId++, kind, ...placement }
   view.windows.push(win)
   view.focused = win.id
   workspace.menuOpen = false
   workspace.picker = null
+  return true
 }
 
 // Menu entries focus an existing window of the same kind instead of duplicating it.
@@ -179,8 +194,61 @@ export function openWindow(kind: WindowKind) {
   } else addWindow(kind)
 }
 
+export function resizeWindow(id: number, w: number, h: number) {
+  const view = currentView.value
+  const win = view.windows.find((window) => window.id === id)
+  if (!win) return false
+
+  if (w < 1 || h < 1 || w * h < minimumCells(win.kind)) return false
+  const fits = view.windows.every(
+    (other) =>
+      other.id === id ||
+      win.col + w <= other.col ||
+      other.col + other.w <= win.col ||
+      win.row + h <= other.row ||
+      other.row + other.h <= win.row,
+  )
+  if (win.col + w > GRID_COLS || win.row + h > GRID_ROWS || !fits) return false
+
+  win.w = w
+  win.h = h
+  return true
+}
+
+export function moveWindow(id: number, col: number, row: number) {
+  const view = currentView.value
+  const win = view.windows.find((window) => window.id === id)
+  if (!win) return false
+  if (col < 0 || row < 0 || col + win.w > GRID_COLS || row + win.h > GRID_ROWS) return false
+  const fits = view.windows.every(
+    (other) =>
+      other.id === id ||
+      col + win.w <= other.col ||
+      other.col + other.w <= col ||
+      row + win.h <= other.row ||
+      other.row + other.h <= row,
+  )
+  if (!fits) return false
+
+  win.col = col
+  win.row = row
+  return true
+}
+
+export function openModuleSettings(id: number) {
+  workspace.menuOpen = false
+  workspace.powerOpen = false
+  workspace.picker = null
+  workspace.moduleSettings = id
+}
+
+export function closeModuleSettings() {
+  workspace.moduleSettings = null
+}
+
 export function closeWindow(id: number) {
   const view = currentView.value
+  if (workspace.moduleSettings === id) workspace.moduleSettings = null
   view.windows = view.windows.filter((item) => item.id !== id)
   if (view.focused === id) view.focused = view.windows.at(-1)?.id ?? null
 }
@@ -207,6 +275,8 @@ export function addView() {
 
 export function selectView(index: number) {
   workspace.activeView = index
+  workspace.page = 'workspace'
+  workspace.moduleSettings = null
   workspace.menuOpen = false
   workspace.picker = null
 }

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { openShowDialog, type ShowDialogPage } from '../stores/shows'
 import {
   menuPages,
+  openPatchPage,
   openWindow,
   selectView,
   workspace,
@@ -13,6 +14,7 @@ import {
 interface Tile {
   label: string
   window?: WindowKind
+  patchPage?: boolean
   view?: number
   dialog?: ShowDialogPage
 }
@@ -21,7 +23,7 @@ const soon = (...labels: string[]): Tile[] => labels.map((label) => ({ label }))
 
 const pages = computed<Record<MenuPage, Tile[]>>(() => ({
   menu: [
-    { label: 'Patch', window: 'patch' },
+    { label: 'Patch', patchPage: true },
     ...soon('Live Patch', 'DMX', 'Network', 'Settings'),
     { label: 'Show', dialog: 'show' },
     { label: 'Backup', dialog: 'backup' },
@@ -37,13 +39,14 @@ const tiles = computed(() => pages.value[workspace.menuPage])
 const title = computed(() => menuPages.find((p) => p.id === workspace.menuPage)?.title ?? 'Menu')
 
 function activate(tile: Tile) {
-  if (tile.window) openWindow(tile.window)
+  if (tile.patchPage) openPatchPage()
+  else if (tile.window) openWindow(tile.window)
   else if (tile.view !== undefined) selectView(tile.view)
   else if (tile.dialog) openShowDialog(tile.dialog)
 }
 
 function isEnabled(tile: Tile) {
-  return tile.window !== undefined || tile.view !== undefined || tile.dialog !== undefined
+  return tile.patchPage || tile.window !== undefined || tile.view !== undefined || tile.dialog !== undefined
 }
 
 function close() {

@@ -1,8 +1,27 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
-import { addWindow, closePicker, menuEntries, moduleGroups, workspace, type WindowKind } from '../stores/workspace'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
+import {
+  addWindow,
+  canPlaceModule,
+  closePicker,
+  menuEntries,
+  moduleGroups,
+  workspace,
+  type WindowKind,
+} from '../stores/workspace'
 
 const entry = (kind: WindowKind) => menuEntries.find((item) => item.kind === kind)!
+const canFitAnything = computed(
+  () =>
+    !!workspace.picker &&
+    moduleGroups.some((group) =>
+      group.kinds.some((kind) => entry(kind).available && canPlaceModule(kind, workspace.picker!)),
+    ),
+)
+
+function canChoose(kind: WindowKind) {
+  return entry(kind).available && !!workspace.picker && canPlaceModule(kind, workspace.picker)
+}
 
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') closePicker()
@@ -34,13 +53,16 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               v-for="kind in group.kinds"
               :key="kind"
               class="h-10 rounded-lg border border-zinc-700 bg-zinc-800 px-2 text-xs leading-tight text-zinc-100 transition-colors enabled:hover:bg-zinc-700 disabled:opacity-40"
-              :disabled="!entry(kind).available"
+              :disabled="!canChoose(kind)"
               @click="choose(kind)"
             >
               {{ entry(kind).title.replace(' Presets', '') }}
             </button>
           </div>
         </div>
+        <p v-if="!canFitAnything" class="text-xs text-zinc-500">
+          No module fits at this grid position. Choose an open area with enough space.
+        </p>
       </div>
     </section>
   </div>
