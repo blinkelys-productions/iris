@@ -16,8 +16,9 @@ This checklist turns the product specification in [whatarewedoing.md](./whatarew
 - [x] Support fixture create, edit, move, replace, and delete operations while preserving identity where appropriate.
 - [x] Import single-fixture, single-break GDTF profiles into the patch model and preserve the original GDTF archive unchanged for export.
 - [x] Import/export MVR 1.4-1.6 fixture patches with embedded GDTF archives; report when scene data is not represented.
-- [ ] Preserve and edit full GDTF/MVR data, including multi-break patching, fixture transforms, geometry, and other scene objects.
-- [ ] Export a printable patch list as PDF.
+- [x] Preserve and round-trip finite 4×4 fixture transform matrices in MVR exports.
+- [ ] Preserve and edit complete GDTF/MVR data, including multi-break patching, geometry, and other scene objects.
+- [x] Export a printable patch list as PDF.
 - [ ] Add patch editing and conflict reporting to the UI.
 
 ## 2. Programming data and attributes

@@ -38,11 +38,17 @@ pub enum InterchangeWarning {
     MvrSceneDataNotRepresented,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ImportedMvr {
     pub patch: Patch,
     pub gdtf_archives: BTreeMap<StableId, ImportedGdtf>,
+    pub scene: MvrSceneData,
     pub warnings: Vec<InterchangeWarning>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MvrSceneData {
+    pub fixture_matrices: BTreeMap<StableId, [f64; 16]>,
 }
 
 #[derive(Debug)]
@@ -253,6 +259,7 @@ pub fn import_mvr(bytes: &[u8]) -> Result<ImportedMvr, InterchangeError> {
 
     let mut patch = Patch::default();
     let mut imported_profiles = BTreeMap::<StableId, ImportedGdtf>::new();
+    let mut scene = MvrSceneData::default();
     for fixture_node in root
         .descendants()
         .filter(|node| node.is_element() && node.tag_name().name() == "Fixture")
@@ -262,6 +269,14 @@ pub fn import_mvr(bytes: &[u8]) -> Result<ImportedMvr, InterchangeError> {
             InterchangeError::InvalidFormat(format!("fixture has invalid UUID '{fixture_uuid}'"))
         })?;
         let fixture_id = StableId::new(fixture_id.to_string())?;
+        if let Some(matrix_node) = fixture_node
+            .children()
+            .find(|node| node.is_element() && node.tag_name().name() == "Matrix")
+        {
+            scene
+                .fixture_matrices
+                .insert(fixture_id.clone(), parse_matrix(node_text(matrix_node)?)?);
+        }
         let fixture_name = required_attribute(fixture_node, "name")?.to_owned();
         let gdtf_name = required_child_text(fixture_node, "GDTFSpec")?.to_owned();
         let mode_name = required_child_text(fixture_node, "GDTFMode")?;
@@ -367,6 +382,7 @@ pub fn import_mvr(bytes: &[u8]) -> Result<ImportedMvr, InterchangeError> {
     Ok(ImportedMvr {
         patch,
         gdtf_archives: imported_profiles,
+        scene,
         warnings,
     })
 }
@@ -375,7 +391,26 @@ pub fn export_mvr(
     patch: &Patch,
     gdtf_archives: &BTreeMap<StableId, Vec<u8>>,
 ) -> Result<Vec<u8>, InterchangeError> {
+    export_mvr_with_scene(patch, gdtf_archives, &MvrSceneData::default())
+}
+
+pub fn export_mvr_with_scene(
+    patch: &Patch,
+    gdtf_archives: &BTreeMap<StableId, Vec<u8>>,
+    scene: &MvrSceneData,
+) -> Result<Vec<u8>, InterchangeError> {
     patch.validate().map_err(InterchangeError::InvalidPatch)?;
+    for fixture_id in scene.fixture_matrices.keys() {
+        if !patch
+            .fixtures
+            .iter()
+            .any(|fixture| &fixture.id == fixture_id)
+        {
+            return Err(InterchangeError::InvalidFormat(format!(
+                "scene data references missing fixture '{fixture_id}'"
+            )));
+        }
+    }
 
     let mut profile_files = BTreeMap::new();
     for definition in &patch.fixture_definitions {
@@ -453,7 +488,14 @@ pub fn export_mvr(
         xml.push_str(&xml_escape(&fixture.name));
         xml.push_str("\" uuid=\"");
         xml.push_str(&mvr_uuid(fixture.id.as_str()));
-        xml.push_str("\"><Matrix>1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1</Matrix><GDTFSpec>");
+        xml.push_str("\"><Matrix>");
+        let matrix = scene
+            .fixture_matrices
+            .get(&fixture.id)
+            .copied()
+            .unwrap_or_else(identity_matrix);
+        xml.push_str(&format_matrix(&matrix)?);
+        xml.push_str("</Matrix><GDTFSpec>");
         xml.push_str(&xml_escape(gdtf_name));
         xml.push_str("</GDTFSpec><GDTFMode>");
         xml.push_str(&xml_escape(&mode.name));
@@ -608,6 +650,7 @@ fn contains_unrepresented_scene_data(root: Node<'_, '_>) -> bool {
         "Layer",
         "ChildList",
         "Fixture",
+        "Matrix",
         "GDTFSpec",
         "GDTFMode",
         "FixtureID",
@@ -617,6 +660,56 @@ fn contains_unrepresented_scene_data(root: Node<'_, '_>) -> bool {
 
     root.descendants()
         .any(|node| node.is_element() && !REPRESENTED_ELEMENTS.contains(&node.tag_name().name()))
+}
+
+fn identity_matrix() -> [f64; 16] {
+    [
+        1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+    ]
+}
+
+fn parse_matrix(value: &str) -> Result<[f64; 16], InterchangeError> {
+    let values = value
+        .split_whitespace()
+        .map(|component| {
+            component.parse::<f64>().map_err(|_| {
+                InterchangeError::InvalidFormat(format!(
+                    "MVR matrix component '{component}' is not a number"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let matrix: [f64; 16] = values.try_into().map_err(|values: Vec<f64>| {
+        InterchangeError::InvalidFormat(format!(
+            "MVR matrix must have 16 components, found {}",
+            values.len()
+        ))
+    })?;
+    if matrix.iter().any(|component| !component.is_finite()) {
+        return Err(InterchangeError::InvalidFormat(
+            "MVR matrix components must be finite numbers".to_owned(),
+        ));
+    }
+    Ok(matrix)
+}
+
+fn format_matrix(matrix: &[f64; 16]) -> Result<String, InterchangeError> {
+    if matrix.iter().any(|component| !component.is_finite()) {
+        return Err(InterchangeError::InvalidFormat(
+            "MVR matrix components must be finite numbers".to_owned(),
+        ));
+    }
+    Ok(matrix
+        .iter()
+        .map(|component| {
+            if *component == 0.0 {
+                "0".to_owned()
+            } else {
+                component.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" "))
 }
 
 fn gdtf_file_name(manufacturer: &str, name: &str, id: &StableId) -> String {
@@ -745,6 +838,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_fixture_matrices_on_mvr_import() {
+        let bytes = mvr_archive(
+            r#"<GeneralSceneDescription verMajor="1" verMinor="6"><Scene><Fixture uuid="e6e44f65-4f1d-4b62-b614-9ab1f6c0c2d1" name="Spot"><Matrix>1 0 0</Matrix></Fixture></Scene></GeneralSceneDescription>"#,
+        );
+
+        assert!(matches!(
+            import_mvr(&bytes),
+            Err(InterchangeError::InvalidFormat(message))
+                if message.contains("must have 16 components")
+        ));
+    }
+
+    #[test]
     fn rejects_non_zip_gdtf_input() {
         assert!(matches!(
             import_gdtf("bad.gdtf", b"not a zip".to_vec()),
@@ -800,9 +906,70 @@ mod tests {
         assert_eq!(fixture.start_address, 128);
         assert_eq!(fixture.id.as_str(), mvr_uuid("fixture-1"));
         assert_eq!(
+            restored.scene.fixture_matrices[&fixture.id],
+            identity_matrix()
+        );
+        assert_eq!(
             restored.gdtf_archives[&fixture.definition_id].archive,
             archive
         );
+    }
+
+    #[test]
+    fn mvr_round_trip_preserves_fixture_transform_matrix() {
+        let archive = gdtf_archive();
+        let imported_profile = import_gdtf("test.gdtf", archive.clone()).unwrap();
+        let definition = imported_profile.definition;
+        let fixture_id = StableId::new("fixture-1").unwrap();
+        let patch = Patch {
+            fixture_definitions: vec![definition.clone()],
+            fixtures: vec![FixtureInstance {
+                id: fixture_id.clone(),
+                number: 21,
+                name: "Front".to_owned(),
+                definition_id: definition.id.clone(),
+                mode_id: definition.modes[0].id.clone(),
+                universe: 4,
+                start_address: 128,
+            }],
+        };
+        let matrix = [
+            0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.5, -3.0, 4.0, 1.0,
+        ];
+        let scene = MvrSceneData {
+            fixture_matrices: BTreeMap::from([(fixture_id.clone(), matrix)]),
+        };
+
+        let bytes = export_mvr_with_scene(
+            &patch,
+            &BTreeMap::from([(definition.id.clone(), archive)]),
+            &scene,
+        )
+        .unwrap();
+        let restored = import_mvr(&bytes).unwrap();
+
+        let exported_fixture_id = StableId::new(mvr_uuid(fixture_id.as_str())).unwrap();
+        assert_eq!(
+            restored.scene.fixture_matrices[&exported_fixture_id],
+            matrix
+        );
+        assert!(restored.warnings.is_empty());
+    }
+
+    #[test]
+    fn rejects_scene_matrices_for_fixtures_not_in_the_patch() {
+        let scene = MvrSceneData {
+            fixture_matrices: BTreeMap::from([(
+                StableId::new("missing").unwrap(),
+                identity_matrix(),
+            )]),
+        };
+
+        assert!(matches!(
+            export_mvr_with_scene(&Patch::default(), &BTreeMap::new(), &scene),
+            Err(InterchangeError::InvalidFormat(message))
+                if message.contains("missing fixture")
+        ));
     }
 
     #[test]
