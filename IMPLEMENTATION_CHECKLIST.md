@@ -19,7 +19,9 @@ This checklist turns the product specification in [whatarewedoing.md](./whatarew
 - [x] Preserve and round-trip finite 4×4 fixture transform matrices in MVR exports.
 - [ ] Preserve and edit complete GDTF/MVR data, including multi-break patching, geometry, and other scene objects.
 - [x] Export a printable patch list as PDF.
-- [ ] Add patch editing and conflict reporting to the UI.
+- [x] Build the UI shell: grandMA3-style workspace (icon rail, dotted workspace, 8-view strip, command bar, programmer panel placeholder) and main menu.
+- [x] Add a patch window with add/edit/delete and live conflict reporting (local state only).
+- [ ] Connect the patch UI to the Rust patch model via Tauri commands (replacing local state and the placeholder fixture library).
 
 ## 2. Programming data and attributes
 
