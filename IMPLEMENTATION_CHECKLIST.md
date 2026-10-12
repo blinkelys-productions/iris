@@ -12,7 +12,7 @@ This checklist turns the product specification in [whatarewedoing.md](./whatarew
 - [x] Validate fixture and mode IDs, fixture numbers, profile references, universes, and DMX address ranges.
 - [x] Detect fixture address collisions and test patch-validation boundaries.
 - [x] Define the shared show model and keep persistent show data separate from runtime state.
-- [ ] Define stable IDs, typed commands, events, and actionable domain errors.
+- [x] Define stable IDs, typed commands, events, and actionable domain errors.
 - [ ] Support fixture create, edit, move, replace, and delete operations while preserving identity where appropriate.
 - [ ] Add fixture-definition import/export, including GDTF; support MVR import/export.
 - [ ] Export a printable patch list as PDF.

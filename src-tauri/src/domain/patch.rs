@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+use super::ids::StableId;
 
 pub const DMX_SLOTS_PER_UNIVERSE: u16 = 512;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FixtureDefinition {
-    pub id: String,
+    pub id: StableId,
     pub manufacturer: String,
     pub name: String,
     pub modes: Vec<FixtureMode>,
@@ -14,18 +17,18 @@ pub struct FixtureDefinition {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FixtureMode {
-    pub id: String,
+    pub id: StableId,
     pub name: String,
     pub channel_count: u16,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FixtureInstance {
-    pub id: String,
+    pub id: StableId,
     pub number: u32,
     pub name: String,
-    pub definition_id: String,
-    pub mode_id: String,
+    pub definition_id: StableId,
+    pub mode_id: StableId,
     pub universe: u16,
     pub start_address: u16,
 }
@@ -38,64 +41,142 @@ pub struct Patch {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PatchValidationError {
-    EmptyFixtureDefinitionId,
-    EmptyFixtureModeId {
-        definition_id: String,
-    },
-    EmptyFixtureId,
     DuplicateFixtureDefinitionId {
-        definition_id: String,
+        definition_id: StableId,
     },
     DuplicateFixtureModeId {
-        definition_id: String,
-        mode_id: String,
+        definition_id: StableId,
+        mode_id: StableId,
     },
     InvalidChannelCount {
-        definition_id: String,
-        mode_id: String,
+        definition_id: StableId,
+        mode_id: StableId,
         channel_count: u16,
     },
     DuplicateFixtureId {
-        fixture_id: String,
+        fixture_id: StableId,
     },
     InvalidFixtureNumber {
-        fixture_id: String,
+        fixture_id: StableId,
     },
     DuplicateFixtureNumber {
         number: u32,
     },
     MissingFixtureDefinition {
-        fixture_id: String,
-        definition_id: String,
+        fixture_id: StableId,
+        definition_id: StableId,
     },
     MissingFixtureMode {
-        fixture_id: String,
-        definition_id: String,
-        mode_id: String,
+        fixture_id: StableId,
+        definition_id: StableId,
+        mode_id: StableId,
     },
     InvalidUniverse {
-        fixture_id: String,
+        fixture_id: StableId,
     },
     InvalidStartAddress {
-        fixture_id: String,
+        fixture_id: StableId,
     },
     AddressOutOfBounds {
-        fixture_id: String,
+        fixture_id: StableId,
         start_address: u16,
         channel_count: u16,
     },
     AddressCollision {
-        first_fixture_id: String,
-        second_fixture_id: String,
+        first_fixture_id: StableId,
+        second_fixture_id: StableId,
         universe: u16,
         start_address: u16,
         end_address: u16,
     },
 }
 
+impl fmt::Display for PatchValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DuplicateFixtureDefinitionId { definition_id } => {
+                write!(formatter, "fixture profile '{definition_id}' is duplicated")
+            }
+            Self::DuplicateFixtureModeId {
+                definition_id,
+                mode_id,
+            } => write!(
+                formatter,
+                "mode '{mode_id}' is duplicated in fixture profile '{definition_id}'"
+            ),
+            Self::InvalidChannelCount {
+                definition_id,
+                mode_id,
+                channel_count,
+            } => write!(
+                formatter,
+                "mode '{mode_id}' in fixture profile '{definition_id}' has invalid channel count {channel_count}"
+            ),
+            Self::DuplicateFixtureId { fixture_id } => {
+                write!(formatter, "fixture ID '{fixture_id}' is duplicated")
+            }
+            Self::InvalidFixtureNumber { fixture_id } => {
+                write!(
+                    formatter,
+                    "fixture '{fixture_id}' must have a number greater than zero"
+                )
+            }
+            Self::DuplicateFixtureNumber { number } => {
+                write!(
+                    formatter,
+                    "fixture number {number} is assigned more than once"
+                )
+            }
+            Self::MissingFixtureDefinition {
+                fixture_id,
+                definition_id,
+            } => write!(
+                formatter,
+                "fixture '{fixture_id}' references missing profile '{definition_id}'"
+            ),
+            Self::MissingFixtureMode {
+                fixture_id,
+                definition_id,
+                mode_id,
+            } => write!(
+                formatter,
+                "fixture '{fixture_id}' references missing mode '{mode_id}' in profile '{definition_id}'"
+            ),
+            Self::InvalidUniverse { fixture_id } => {
+                write!(
+                    formatter,
+                    "fixture '{fixture_id}' must use a universe greater than zero"
+                )
+            }
+            Self::InvalidStartAddress { fixture_id } => write!(
+                formatter,
+                "fixture '{fixture_id}' must start at a DMX address from 1 to {DMX_SLOTS_PER_UNIVERSE}"
+            ),
+            Self::AddressOutOfBounds {
+                fixture_id,
+                start_address,
+                channel_count,
+            } => write!(
+                formatter,
+                "fixture '{fixture_id}' uses {channel_count} channels from address {start_address}, past the end of its universe"
+            ),
+            Self::AddressCollision {
+                first_fixture_id,
+                second_fixture_id,
+                universe,
+                start_address,
+                end_address,
+            } => write!(
+                formatter,
+                "fixtures '{first_fixture_id}' and '{second_fixture_id}' overlap in universe {universe}, addresses {start_address}-{end_address}"
+            ),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Assignment {
-    fixture_id: String,
+    fixture_id: StableId,
     universe: u16,
     start_address: u16,
     end_address: u16,
@@ -107,13 +188,8 @@ impl Patch {
         let mut definitions_by_id = HashMap::new();
 
         for definition in &self.fixture_definitions {
-            if definition.id.is_empty() {
-                errors.push(PatchValidationError::EmptyFixtureDefinitionId);
-                continue;
-            }
-
             if definitions_by_id
-                .insert(definition.id.as_str(), definition)
+                .insert(&definition.id, definition)
                 .is_some()
             {
                 errors.push(PatchValidationError::DuplicateFixtureDefinitionId {
@@ -123,14 +199,7 @@ impl Patch {
 
             let mut mode_ids = HashMap::new();
             for mode in &definition.modes {
-                if mode.id.is_empty() {
-                    errors.push(PatchValidationError::EmptyFixtureModeId {
-                        definition_id: definition.id.clone(),
-                    });
-                    continue;
-                }
-
-                if mode_ids.insert(mode.id.as_str(), ()).is_some() {
+                if mode_ids.insert(&mode.id, ()).is_some() {
                     errors.push(PatchValidationError::DuplicateFixtureModeId {
                         definition_id: definition.id.clone(),
                         mode_id: mode.id.clone(),
@@ -152,9 +221,7 @@ impl Patch {
         let mut assignments = Vec::new();
 
         for fixture in &self.fixtures {
-            if fixture.id.is_empty() {
-                errors.push(PatchValidationError::EmptyFixtureId);
-            } else if fixture_ids.insert(fixture.id.as_str(), ()).is_some() {
+            if fixture_ids.insert(&fixture.id, ()).is_some() {
                 errors.push(PatchValidationError::DuplicateFixtureId {
                     fixture_id: fixture.id.clone(),
                 });
@@ -173,7 +240,7 @@ impl Patch {
                 });
             }
 
-            let Some(definition) = definitions_by_id.get(fixture.definition_id.as_str()) else {
+            let Some(definition) = definitions_by_id.get(&fixture.definition_id) else {
                 errors.push(PatchValidationError::MissingFixtureDefinition {
                     fixture_id: fixture.id.clone(),
                     definition_id: fixture.definition_id.clone(),
@@ -277,26 +344,35 @@ impl Patch {
 mod tests {
     use super::*;
 
+    fn id(value: &str) -> StableId {
+        StableId::new(value).unwrap()
+    }
+
     fn fixture_definition(channel_count: u16) -> FixtureDefinition {
         FixtureDefinition {
-            id: "profile".to_owned(),
+            id: id("profile"),
             manufacturer: "Iris".to_owned(),
             name: "Test fixture".to_owned(),
             modes: vec![FixtureMode {
-                id: "standard".to_owned(),
+                id: id("standard"),
                 name: "Standard".to_owned(),
                 channel_count,
             }],
         }
     }
 
-    fn fixture(id: &str, number: u32, universe: u16, start_address: u16) -> FixtureInstance {
+    fn fixture(
+        fixture_id: &str,
+        number: u32,
+        universe: u16,
+        start_address: u16,
+    ) -> FixtureInstance {
         FixtureInstance {
-            id: id.to_owned(),
+            id: id(fixture_id),
             number,
             name: format!("Fixture {number}"),
-            definition_id: "profile".to_owned(),
-            mode_id: "standard".to_owned(),
+            definition_id: id("profile"),
+            mode_id: id("standard"),
             universe,
             start_address,
         }
@@ -330,7 +406,7 @@ mod tests {
             .unwrap_err();
 
         assert!(errors.contains(&PatchValidationError::AddressOutOfBounds {
-            fixture_id: "fixture-1".to_owned(),
+            fixture_id: id("fixture-1"),
             start_address: 512,
             channel_count: 2,
         }));
@@ -351,8 +427,8 @@ mod tests {
         assert_eq!(
             result,
             Err(vec![PatchValidationError::AddressCollision {
-                first_fixture_id: "fixture-1".to_owned(),
-                second_fixture_id: "fixture-2".to_owned(),
+                first_fixture_id: id("fixture-1"),
+                second_fixture_id: id("fixture-2"),
                 universe: 1,
                 start_address: 4,
                 end_address: 4,
@@ -363,23 +439,23 @@ mod tests {
     #[test]
     fn reports_missing_definition_and_mode() {
         let mut show_patch = patch(4, vec![fixture("fixture-1", 1, 1, 1)]);
-        show_patch.fixtures[0].definition_id = "missing".to_owned();
+        show_patch.fixtures[0].definition_id = id("missing");
 
         let errors = show_patch.validate().unwrap_err();
         assert!(
             errors.contains(&PatchValidationError::MissingFixtureDefinition {
-                fixture_id: "fixture-1".to_owned(),
-                definition_id: "missing".to_owned(),
+                fixture_id: id("fixture-1"),
+                definition_id: id("missing"),
             })
         );
 
-        show_patch.fixtures[0].definition_id = "profile".to_owned();
-        show_patch.fixtures[0].mode_id = "missing".to_owned();
+        show_patch.fixtures[0].definition_id = id("profile");
+        show_patch.fixtures[0].mode_id = id("missing");
         let errors = show_patch.validate().unwrap_err();
         assert!(errors.contains(&PatchValidationError::MissingFixtureMode {
-            fixture_id: "fixture-1".to_owned(),
-            definition_id: "profile".to_owned(),
-            mode_id: "missing".to_owned(),
+            fixture_id: id("fixture-1"),
+            definition_id: id("profile"),
+            mode_id: id("missing"),
         }));
     }
 
@@ -389,20 +465,20 @@ mod tests {
         let errors = show_patch.validate().unwrap_err();
 
         assert!(errors.contains(&PatchValidationError::InvalidChannelCount {
-            definition_id: "profile".to_owned(),
-            mode_id: "standard".to_owned(),
+            definition_id: id("profile"),
+            mode_id: id("standard"),
             channel_count: 0,
         }));
         assert!(
             errors.contains(&PatchValidationError::InvalidFixtureNumber {
-                fixture_id: "fixture-1".to_owned(),
+                fixture_id: id("fixture-1"),
             })
         );
         assert!(errors.contains(&PatchValidationError::InvalidUniverse {
-            fixture_id: "fixture-1".to_owned(),
+            fixture_id: id("fixture-1"),
         }));
         assert!(errors.contains(&PatchValidationError::InvalidStartAddress {
-            fixture_id: "fixture-1".to_owned(),
+            fixture_id: id("fixture-1"),
         }));
 
         show_patch.fixtures[0].number = 1;
