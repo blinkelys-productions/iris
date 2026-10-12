@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { openShowDialog, type ShowDialogPage } from '../stores/shows'
 import {
   menuPages,
   openWindow,
@@ -13,6 +14,7 @@ interface Tile {
   label: string
   window?: WindowKind
   view?: number
+  dialog?: ShowDialogPage
 }
 
 const soon = (...labels: string[]): Tile[] => labels.map((label) => ({ label }))
@@ -20,7 +22,10 @@ const soon = (...labels: string[]): Tile[] => labels.map((label) => ({ label }))
 const pages = computed<Record<MenuPage, Tile[]>>(() => ({
   menu: [
     { label: 'Patch', window: 'patch' },
-    ...soon('Live Patch', 'DMX', 'Network', 'Settings', 'Backup', 'Quick Save'),
+    ...soon('Live Patch', 'DMX', 'Network', 'Settings'),
+    { label: 'Show', dialog: 'show' },
+    { label: 'Backup', dialog: 'backup' },
+    { label: 'Quick Save', dialog: 'quicksave' },
   ],
   masters: soon('Grand Master', 'Speed Master 1', 'Speed Master 2', 'Rate Master', 'Playback Master', 'Highlight'),
   screens: Array.from({ length: workspace.views.length }, (_, i) => ({ label: `View ${i + 1}`, view: i })),
@@ -34,10 +39,11 @@ const title = computed(() => menuPages.find((p) => p.id === workspace.menuPage)?
 function activate(tile: Tile) {
   if (tile.window) openWindow(tile.window)
   else if (tile.view !== undefined) selectView(tile.view)
+  else if (tile.dialog) openShowDialog(tile.dialog)
 }
 
 function isEnabled(tile: Tile) {
-  return tile.window !== undefined || tile.view !== undefined
+  return tile.window !== undefined || tile.view !== undefined || tile.dialog !== undefined
 }
 
 function close() {

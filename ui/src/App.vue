@@ -4,6 +4,7 @@ import BottomPanel from './components/BottomPanel.vue'
 import CommandBar from './components/CommandBar.vue'
 import MainMenu from './components/MainMenu.vue'
 import ModulePicker from './components/ModulePicker.vue'
+import ShowDialog from './components/ShowDialog.vue'
 import ModuleWindow from './components/ModuleWindow.vue'
 import PatchWindow from './components/PatchWindow.vue'
 import PowerMenu from './components/PowerMenu.vue'
@@ -46,6 +47,7 @@ const gridStyle = {
       </WindowFrame>
       <MainMenu />
       <ModulePicker />
+      <ShowDialog />
     </main>
     <ViewStrip />
     <CommandBar />

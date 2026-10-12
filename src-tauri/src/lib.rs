@@ -1,5 +1,80 @@
 pub mod domain;
 
+use std::{sync::Arc, time::Duration};
+
+use domain::{
+    persistence::{QuicksaveSummary, ShowSummary},
+    service::{BackupSummary, ServiceResult, SessionStatus, ShowService, now_ms},
+};
+use tauri::{Manager, State};
+
+type Service<'a> = State<'a, Arc<ShowService>>;
+
+#[tauri::command]
+fn list_shows(service: Service) -> ServiceResult<Vec<ShowSummary>> {
+    service.list_shows()
+}
+
+#[tauri::command]
+fn new_show(service: Service, name: String) -> ServiceResult<SessionStatus> {
+    service.new_show(&name, now_ms())
+}
+
+#[tauri::command]
+fn open_show(service: Service, id: String) -> ServiceResult<SessionStatus> {
+    service.open_show(&id, now_ms())
+}
+
+#[tauri::command]
+fn session_status(service: Service) -> ServiceResult<Option<SessionStatus>> {
+    service.status()
+}
+
+#[tauri::command]
+fn save_show(service: Service) -> ServiceResult<SessionStatus> {
+    service.save(now_ms())
+}
+
+#[tauri::command]
+fn save_show_as(service: Service, name: String) -> ServiceResult<SessionStatus> {
+    service.save_as(&name, now_ms())
+}
+
+#[tauri::command]
+fn rename_show(service: Service, name: String) -> ServiceResult<SessionStatus> {
+    service.rename(&name)
+}
+
+#[tauri::command]
+fn quicksave(service: Service, label: String) -> ServiceResult<Vec<QuicksaveSummary>> {
+    service.quicksave(&label, now_ms())
+}
+
+#[tauri::command]
+fn list_quicksaves(service: Service) -> ServiceResult<Vec<QuicksaveSummary>> {
+    service.list_quicksaves()
+}
+
+#[tauri::command]
+fn restore_quicksave(service: Service, id: String) -> ServiceResult<SessionStatus> {
+    service.restore_quicksave(&id)
+}
+
+#[tauri::command]
+fn delete_quicksave(service: Service, id: String) -> ServiceResult<Vec<QuicksaveSummary>> {
+    service.delete_quicksave(&id)
+}
+
+#[tauri::command]
+fn list_backups(service: Service) -> ServiceResult<Vec<BackupSummary>> {
+    service.list_backups()
+}
+
+#[tauri::command]
+fn restore_backup(service: Service, id: String) -> ServiceResult<SessionStatus> {
+    service.restore_backup(&id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -11,8 +86,34 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      let library_dir = app.path().app_data_dir()?.join("shows");
+      let service = Arc::new(ShowService::new(library_dir, env!("CARGO_PKG_VERSION")));
+      app.manage(Arc::clone(&service));
+
+      std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(15));
+        if let Err(error) = service.tick(now_ms()) {
+          log::warn!("automatic quicksave failed: {error}");
+        }
+      });
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![
+      list_shows,
+      new_show,
+      open_show,
+      session_status,
+      save_show,
+      save_show_as,
+      rename_show,
+      quicksave,
+      list_quicksaves,
+      restore_quicksave,
+      delete_quicksave,
+      list_backups,
+      restore_backup
+    ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");
 }

@@ -134,6 +134,13 @@ A show contains:
 
 Persistent show data must be separate from transient runtime state.
 
+#### Show files and quicksaves (current focus)
+
+- A show is stored as a versioned `ShowFile` envelope (format marker, format version, app version, save timestamp, show). Loading rejects foreign files, version mismatches and invalid shows.
+- Layout: `<library>/<show-id>/show.iris`, with `quicksaves/` and `backups/` beside it.
+- A quicksave is a full snapshot that can be restored independently. Manual quicksaves are kept until deleted. Automatic ones are bounded and the oldest are evicted first.
+- Timestamps are supplied by the caller so the model stays deterministic. File I/O, atomic writes, recovery and migrations come next.
+
 ### 3.2 Fixture
 
 A fixture instance should reference a fixture definition and contain:

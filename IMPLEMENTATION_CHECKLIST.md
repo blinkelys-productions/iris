@@ -6,6 +6,25 @@ Iris is an open-source desktop lighting console: a reliable Rust lighting engine
 
 This checklist turns the product specification in [whatarewedoing.md](./whatarewedoing.md) into implementation milestones. Check an item only when the behavior is implemented and its relevant tests pass.
 
+## Current focus: showfiles, saving, loading and quicksaves
+
+Before wiring the UI to the backend, define how shows are stored. Work happens in `src-tauri/src/domain/persistence.rs`.
+
+- [x] Define the show file envelope (format marker, version, app version, timestamp) with encode/decode and validation.
+- [x] Define quicksave models and a bounded history that evicts only automatic entries.
+- [x] Define the on-disk library layout (show, quicksaves, backups) and persistence errors.
+- [x] Read and write show files atomically (temp file, then rename) and list saved shows (`library.rs`).
+- [x] Create, save, save-as, load and delete shows in the library; reject ids that could escape it.
+- [x] Quicksave create, list, restore and delete, with automatic quicksaves pruned on disk.
+- [x] Hold the current show in the engine (`session.rs`): dirty tracking, validated edits with rollback, save/save-as, manual quicksaves, and an automatic quicksave policy driven by a caller-supplied clock.
+- [x] Backups: the previous saved file is kept in `backups/` on every save (bounded), and backups can be listed, restored and deleted.
+- [x] Crash and corruption recovery: a corrupt show file is moved aside and replaced by the newest valid backup or quicksave; opening a show reports when this happened.
+- [x] Run the automatic quicksave timer in the app (every 15 s, policy in the session) and store shows under the app data directory.
+- [x] Tauri commands for shows, quicksaves and backups (`service.rs` facade plus thin commands in `lib.rs`).
+- [ ] Format migrations between show format versions.
+- [x] Wire the Menu's Show, Backup and Quick Save tiles to the commands (`ShowDialog.vue`, `stores/shows.ts`); Cmd/Ctrl+S saves. Only works inside the Tauri app.
+- [ ] Persist the workspace layout (views and windows) and the patch in the show file, so loading restores them.
+
 ## 1. Core model and patching
 
 - [x] Add Rust fixture-definition, mode, fixture-instance, and patch types.
