@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Iris GDTF Share</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+body{font:14px system-ui;background:#111;color:#ddd;margin:0;padding:24px;max-width:1000px;margin:auto}
+h1{font-size:20px}input,select,button{background:#1c1c1f;color:#ddd;border:1px solid #3f3f46;border-radius:6px;padding:6px 10px;font:inherit}
+button{cursor:pointer}button:hover{border-color:#a78bfa}table{width:100%;border-collapse:collapse;margin-top:12px}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid #27272a}.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.tag{padding:1px 8px;border-radius:99px;font-size:12px}.official{background:#4c1d95}.community{background:#3f3f46}
+#msg{min-height:20px;color:#fbbf24}.panel{border:1px solid #27272a;border-radius:10px;padding:12px;margin-top:14px}
+</style></head><body>
+<h1>Iris GDTF Share</h1>
+<div class="row"><input id="q" placeholder="Search fixtures"><select id="src"><option value="">All</option><option>official</option><option>community</option></select><button id="go">Search</button></div>
+<div id="msg"></div>
+<table><thead><tr><th>Fixture</th><th>Modes</th><th>Source</th><th>Uploader</th><th>Downloads</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<div class="panel"><b>Upload</b>
+<div class="row"><input id="who" placeholder="Your name (optional)"><input id="file" type="file" accept=".gdtf"><button id="up">Share</button></div>
+<small>Your delete token is shown once after upload — keep it to retract the file later.</small></div>
+<div class="panel"><b>Administration</b>
+<div class="row"><input id="tok" type="password" placeholder="Administrator token"><input id="afile" type="file" accept=".gdtf"><button id="aup">Add as official</button></div>
+<small>Token stays in this tab only. Promote, demote and delete buttons appear once a token is entered.</small></div>
+<script>
+const $=id=>document.getElementById(id),msg=t=>$('msg').textContent=t;
+const auth=()=>({Authorization:'Bearer '+$('tok').value});
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+async function api(url,opt){const r=await fetch(url,opt);if(!r.ok){let e='';try{e=(await r.json()).error}catch{}throw new Error(e||r.status)}return r.status===204?null:r}
+async function load(){
+ try{const r=await(await api('/api/v1/profiles?q='+encodeURIComponent($('q').value)+'&source='+$('src').value)).json();
+ const admin=!!$('tok').value;
+ $('rows').innerHTML=r.map(p=>`<tr><td>${esc(p.manufacturer)} <b>${esc(p.name)}</b><br><small>${esc(p.revision)}</small></td>
+ <td>${esc(p.modes.join(', '))}</td><td><span class="tag ${p.source}">${p.source}</span></td><td>${esc(p.uploader)}</td><td>${p.downloads}</td>
+ <td><a href="/api/v1/profiles/${p.id}/download"><button>Download</button></a>
+ ${admin?`<button data-a="${p.source=='official'?'demote':'promote'}" data-id="${p.id}">${p.source=='official'?'Demote':'Promote'}</button><button data-a="del" data-id="${p.id}">Delete</button>`:''}</td></tr>`).join('')}catch(e){msg(e.message)}}
+async function upload(url,file,headers){
+ if(!file)return msg('Choose a .gdtf file first');
+ try{const r=await(await api(url,{method:'POST',headers,body:await file.arrayBuffer()})).json();
+ msg(r.duplicate?'Already shared.':'Uploaded.'+(r.delete_token?' Delete token: '+r.delete_token:''));load()}catch(e){msg(e.message)}}
+$('go').onclick=load;$('tok').oninput=load;
+$('up').onclick=()=>upload('/api/v1/profiles',$('file').files[0],{'X-Uploader':$('who').value});
+$('aup').onclick=()=>upload('/api/v1/admin/profiles',$('afile').files[0],auth());
+$('rows').onclick=async e=>{const a=e.target.dataset.a,id=e.target.dataset.id;if(!a)return;
+ try{if(a=='del'){if(!confirm('Delete this profile?'))return;await api('/api/v1/admin/profiles/'+id,{method:'DELETE',headers:auth()})}
+ else await api(`/api/v1/admin/profiles/${id}/${a}`,{method:'POST',headers:auth()});load()}catch(e){msg(e.message)}};
+load();
+</script></body></html>

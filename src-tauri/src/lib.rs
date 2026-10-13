@@ -6,6 +6,7 @@ use domain::{
     ids::StableId,
     patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
+    share::{ShareUpload, SharedProfile},
     service::{BackupSummary, MvrImportResult, ServiceResult, SessionStatus, ShowService, now_ms},
 };
 use tauri::{Manager, State};
@@ -107,6 +108,46 @@ fn import_gdtf(service: Service, path: String) -> ServiceResult<FixtureDefinitio
 }
 
 #[tauri::command]
+async fn share_search(service: Service<'_>, server: String, query: String, source: String) -> ServiceResult<Vec<SharedProfile>> {
+    let service = Arc::clone(&service);
+    tauri::async_runtime::spawn_blocking(move || service.share_search(&server, &query, &source))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_download(service: Service<'_>, server: String, id: String) -> ServiceResult<FixtureDefinition> {
+    let service = Arc::clone(&service);
+    tauri::async_runtime::spawn_blocking(move || service.share_download(&server, &id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_upload_file(service: Service<'_>, server: String, path: String, uploader: String) -> ServiceResult<ShareUpload> {
+    let service = Arc::clone(&service);
+    tauri::async_runtime::spawn_blocking(move || service.share_upload_file(&server, path.as_ref(), &uploader))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_upload_profile(service: Service<'_>, server: String, id: StableId, uploader: String) -> ServiceResult<ShareUpload> {
+    let service = Arc::clone(&service);
+    tauri::async_runtime::spawn_blocking(move || service.share_upload_profile(&server, &id, &uploader))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn share_delete(service: Service<'_>, server: String, id: String, token: String) -> ServiceResult<()> {
+    let service = Arc::clone(&service);
+    tauri::async_runtime::spawn_blocking(move || service.share_delete(&server, &id, &token))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn import_mvr(service: Service, path: String) -> ServiceResult<MvrImportResult> {
     service.import_mvr_file(path.as_ref())
 }
@@ -178,6 +219,11 @@ pub fn run() {
       remove_fixtures,
       list_profiles,
       import_gdtf,
+      share_search,
+      share_download,
+      share_upload_file,
+      share_upload_profile,
+      share_delete,
       import_mvr,
       export_mvr,
       export_patch_pdf,

@@ -15,6 +15,7 @@ use super::{
     patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
     session::{SessionSettings, ShowSession},
+    share::{ShareClient, ShareUpload, SharedProfile},
 };
 
 /// What the UI needs to know about the open show.
@@ -230,6 +231,36 @@ impl ShowService {
         let imported = interchange::import_gdtf(name, bytes).map_err(|e| e.to_string())?;
         self.profiles.save(&imported).map_err(|e| e.to_string())?;
         Ok(imported.definition)
+    }
+
+    pub fn share_search(&self, server: &str, query: &str, source: &str) -> ServiceResult<Vec<SharedProfile>> {
+        ShareClient::new(server)?.search(query, source)
+    }
+
+    /// Downloads a shared profile into the console-wide profile library.
+    pub fn share_download(&self, server: &str, id: &str) -> ServiceResult<FixtureDefinition> {
+        let bytes = ShareClient::new(server)?.download(id)?;
+        let imported = interchange::import_gdtf(format!("{id}.gdtf"), bytes).map_err(|e| e.to_string())?;
+        self.profiles.save(&imported).map_err(|e| e.to_string())?;
+        Ok(imported.definition)
+    }
+
+    /// Shares a GDTF file from disk. It is validated locally before leaving the machine.
+    pub fn share_upload_file(&self, server: &str, path: &Path, uploader: &str) -> ServiceResult<ShareUpload> {
+        let bytes = read_file(path)?;
+        interchange::import_gdtf(file_name(path), bytes.clone()).map_err(|e| e.to_string())?;
+        ShareClient::new(server)?.upload(&bytes, uploader)
+    }
+
+    /// Shares a profile already in the library.
+    pub fn share_upload_profile(&self, server: &str, id: &StableId, uploader: &str) -> ServiceResult<ShareUpload> {
+        let archives = self.profiles.archives(std::slice::from_ref(id));
+        let bytes = archives.get(id).ok_or("that fixture has no stored GDTF file to share")?;
+        ShareClient::new(server)?.upload(bytes, uploader)
+    }
+
+    pub fn share_delete(&self, server: &str, id: &str, token: &str) -> ServiceResult<()> {
+        ShareClient::new(server)?.delete(id, token)
     }
 
     pub fn list_profiles(&self) -> ServiceResult<Vec<FixtureDefinition>> {

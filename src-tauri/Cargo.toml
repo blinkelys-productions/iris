@@ -29,3 +29,4 @@ uuid = { version = "1", features = ["v5"] }
 zip = { version = "8.6", default-features = false, features = ["deflate"] }
 printpdf = { version = "0.12.8", default-features = false }
 tauri-plugin-dialog = "2.8.2"
+ureq = { version = "3", features = ["json"] }

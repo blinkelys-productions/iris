@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { inApp } from '../stores/backend'
+import ShareDialog from './ShareDialog.vue'
 import { exportMvr, exportPatchPdf, importGdtf, importMvr } from '../stores/interchange'
 import {
   channelCount,
@@ -33,6 +34,7 @@ const selected = ref<string[]>([])
 const draft = ref<FixtureInstance | null>(null)
 const isNew = ref(false)
 const quantity = ref(1)
+const sharing = ref(false)
 
 const rows = computed(() =>
   [...patch.fixtures].sort(
@@ -239,6 +241,7 @@ const tool = 'btn !py-1 text-xs'
       <span class="mx-1 h-4 w-px bg-zinc-700"></span>
       <button :class="tool" disabled>Patch</button>
       <button :class="tool" :disabled="!inApp" @click="importGdtf">Import GDTF</button>
+      <button :class="tool" :disabled="!inApp" @click="sharing = true">GDTF Share</button>
       <button :class="tool" :disabled="!inApp" @click="importMvr">Import MVR</button>
       <button :class="tool" :disabled="!inApp || !patch.fixtures.length" @click="exportMvr">Export MVR</button>
       <button :class="tool" :disabled="!inApp || !patch.fixtures.length" @click="exportPatchPdf">Export PDF</button>
@@ -247,6 +250,8 @@ const tool = 'btn !py-1 text-xs'
       <button :class="tool" :disabled="!rows.length" @click="moveSelection(-1)">Select up</button>
       <button :class="tool" :disabled="!rows.length" @click="moveSelection(1)">Select down</button>
     </div>
+
+    <ShareDialog v-if="sharing" @close="sharing = false" />
 
     <div v-if="draft" class="absolute inset-0 z-10 grid place-items-center bg-black/50 p-3">
       <form class="grid w-80 max-w-full gap-3 rounded-xl border border-zinc-700 bg-zinc-900 p-4 shadow-2xl" @submit.prevent="commit">

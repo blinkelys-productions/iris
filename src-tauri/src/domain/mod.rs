@@ -10,4 +10,5 @@ pub mod persistence;
 pub mod runtime;
 pub mod service;
 pub mod session;
+pub mod share;
 pub mod show;

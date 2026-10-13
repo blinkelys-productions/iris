@@ -85,7 +85,7 @@ interface WireFixture {
   start_address: number
 }
 
-interface WireDefinition {
+export interface WireDefinition {
   id: string
   manufacturer: string
   name: string
@@ -136,7 +136,7 @@ export function applyWirePatch(wire: WirePatch) {
   }))
 }
 
-function addToLibrary(d: WireDefinition) {
+export function addToLibrary(d: WireDefinition) {
   const definition: FixtureDefinition = {
     id: d.id,
     manufacturer: d.manufacturer,
