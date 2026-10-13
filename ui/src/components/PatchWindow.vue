@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { inApp } from '../stores/backend'
 import ShareDialog from './ShareDialog.vue'
+import {
+  applyBulkEdit,
+  fieldLabels,
+  rangeBetween,
+  type BulkEdit,
+  type BulkField,
+} from '../stores/bulkEdit'
 import { exportMvr, exportPatchPdf, importGdtf, importMvr } from '../stores/interchange'
 import {
   channelCount,
@@ -118,13 +125,143 @@ async function commit() {
   if (await saveFixtures(batch)) draft.value = null
 }
 
-function toggle(id: string, event: MouseEvent) {
-  if (event.metaKey || event.ctrlKey || event.shiftKey) {
+type Column = BulkField | 'channels'
+const column = ref<Column>('name')
+const anchor = ref<string | null>(null)
+const dragging = ref(false)
+let dragBase: string[] = []
+
+const rowOrder = computed(() => rows.value.map((f) => f.id))
+
+const isMac = /Mac/i.test(navigator.platform)
+
+function onCellDown(id: string, col: Column, event: MouseEvent) {
+  if (event.button !== 0) return
+  // Ctrl-click is a right click on macOS.
+  if (isMac && event.ctrlKey) return
+  if (col !== column.value) {
+    column.value = col
+    selected.value = []
+    anchor.value = null
+  }
+  const additive = event.metaKey || event.ctrlKey
+  if (event.shiftKey && anchor.value) {
+    const range = rangeBetween(rowOrder.value, anchor.value, id)
+    selected.value = additive ? [...new Set([...selected.value, ...range])] : range
+    return
+  }
+  if (additive) {
     selected.value = selected.value.includes(id)
       ? selected.value.filter((item) => item !== id)
       : [...selected.value, id]
-  } else {
-    selected.value = [id]
+    anchor.value = id
+    return
+  }
+  selected.value = [id]
+  anchor.value = id
+  dragBase = []
+  dragging.value = true
+}
+
+function onCellEnter(id: string, col: Column) {
+  if (col !== column.value) return
+  if (!dragging.value || !anchor.value) return
+  selected.value = [...new Set([...dragBase, ...rangeBetween(rowOrder.value, anchor.value, id)])]
+}
+
+const stopDragging = () => {
+  dragging.value = false
+}
+
+function onKey(event: KeyboardEvent) {
+  const target = event.target as HTMLElement | null
+  if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+  if (draft.value || sharing.value) return
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
+    event.preventDefault()
+    selected.value = [...rowOrder.value]
+  } else if (event.key === 'Escape') {
+    if (menu.open) menu.open = false
+    else selected.value = []
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected.value.length) {
+    event.preventDefault()
+    void deleteSelected()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('mouseup', stopDragging)
+  window.addEventListener('keydown', onKey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('mouseup', stopDragging)
+  window.removeEventListener('keydown', onKey)
+})
+
+const menu = reactive({
+  open: false,
+  x: 0,
+  y: 0,
+  edit: { field: 'name', text: '', definitionId: '', modeName: '', sequence: false } as BulkEdit,
+})
+
+const selectedFixtures = computed(() => rows.value.filter((f) => selected.value.includes(f.id)))
+
+const menuModes = computed(() => {
+  const names = new Set<string>()
+  const definitions =
+    menu.edit.field === 'type'
+      ? [findDefinition(menu.edit.definitionId)]
+      : selectedFixtures.value.map((f) => findDefinition(f.definitionId))
+  for (const definition of definitions) definition?.modes.forEach((m) => names.add(m.name))
+  return [...names]
+})
+
+const menuPreview = computed(() => applyBulkEdit(selectedFixtures.value, menu.edit))
+const menuErrors = computed(() => {
+  const edit = menu.edit
+  const textual = ['number', 'universe', 'address'].includes(edit.field)
+  if (textual && !Number.isFinite(Number(edit.text))) return ['Enter a number.']
+  if (edit.field === 'name' && !edit.text.trim()) return ['Name is required.']
+  if ((edit.field === 'type' || edit.field === 'mode') && menu.edit.modeName === '' && menuModes.value.length) {
+    return ['Choose a mode.']
+  }
+  const errors = new Set<string>()
+  for (const fixture of menuPreview.value) validateFixture(fixture).forEach((e) => errors.add(e))
+  return [...errors]
+})
+
+function openMenu(fixture: FixtureInstance, field: BulkField, event: MouseEvent) {
+  if (column.value !== field || !selected.value.includes(fixture.id)) {
+    column.value = field
+    selected.value = [fixture.id]
+    anchor.value = fixture.id
+  }
+  const first = selectedFixtures.value[0] ?? fixture
+  const text = { number: first.number, universe: first.universe, address: first.startAddress, name: first.name }
+  menu.edit = {
+    field,
+    text: String(text[field as keyof typeof text] ?? ''),
+    definitionId: first.definitionId,
+    modeName: findMode(first.definitionId, first.modeId)?.name ?? '',
+    sequence: false,
+  }
+  patch.error = ''
+  menu.x = Math.min(event.clientX, window.innerWidth - 280)
+  menu.y = Math.min(event.clientY, window.innerHeight - 260)
+  menu.open = true
+}
+
+function onMenuTypeChange() {
+  menu.edit.modeName = findDefinition(menu.edit.definitionId)?.modes[0]?.name ?? ''
+}
+
+async function applyMenu() {
+  if (menuErrors.value.length) return
+  try {
+    if (await saveFixtures(menuPreview.value)) menu.open = false
+  } catch (error) {
+    patch.error = String(error)
   }
 }
 
@@ -154,13 +291,12 @@ function modeLabel(fixture: FixtureInstance) {
 
 function rowClass(fixture: FixtureInstance) {
   const conflict = conflictedIds.value.has(fixture.id)
-  if (selected.value.includes(fixture.id)) {
-    return 'bg-accent/10 [&>td:first-child]:shadow-[inset_2px_0_0_var(--color-accent)]'
-  }
-  return [
-    'hover:bg-zinc-800/60',
-    conflict && 'text-red-300 [&>td:first-child]:shadow-[inset_2px_0_0_var(--color-red-500)]',
-  ]
+  return conflict && 'text-red-300 [&>td:first-child]:shadow-[inset_2px_0_0_var(--color-red-500)]'
+}
+
+function cellClass(fixture: FixtureInstance, col: Column) {
+  const picked = column.value === col && selected.value.includes(fixture.id)
+  return picked ? 'bg-accent/20 outline outline-1 -outline-offset-1 outline-accent/60' : 'hover:bg-zinc-800/60'
 }
 
 const th = 'px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-zinc-400'
@@ -184,7 +320,7 @@ const tool = 'btn !py-1 text-xs'
       </nav>
 
       <div class="min-w-0 flex-1 overflow-auto rounded-lg border border-zinc-800 bg-zinc-950">
-        <table class="w-full border-collapse text-sm">
+        <table class="w-full select-none border-collapse text-sm">
           <thead class="sticky top-0 bg-zinc-900">
             <tr class="border-b border-zinc-800">
               <th :class="[th, 'w-16']">FID</th>
@@ -201,15 +337,14 @@ const tool = 'btn !py-1 text-xs'
               :key="fixture.id"
               class="cursor-default border-b border-zinc-900"
               :class="rowClass(fixture)"
-              @click="toggle(fixture.id, $event)"
               @dblclick="startEdit(fixture)"
             >
-              <td :class="[td, 'tabular-nums text-zinc-400']">{{ fixture.number }}</td>
-              <td :class="td">{{ fixture.name }}</td>
-              <td :class="td">{{ typeLabel(fixture) }}</td>
-              <td :class="td">{{ modeLabel(fixture) }}</td>
-              <td :class="[td, 'tabular-nums']">{{ patchLabel(fixture) }}</td>
-              <td :class="[td, 'tabular-nums text-zinc-400']">{{ channelCount(fixture) }}</td>
+              <td :class="[td, 'tabular-nums text-zinc-400', cellClass(fixture, 'number')]" @mousedown="onCellDown(fixture.id, 'number', $event)" @mouseenter="onCellEnter(fixture.id, 'number')" @contextmenu.prevent="openMenu(fixture, 'number', $event)">{{ fixture.number }}</td>
+              <td :class="[td, cellClass(fixture, 'name')]" @mousedown="onCellDown(fixture.id, 'name', $event)" @mouseenter="onCellEnter(fixture.id, 'name')" @contextmenu.prevent="openMenu(fixture, 'name', $event)">{{ fixture.name }}</td>
+              <td :class="[td, cellClass(fixture, 'type')]" @mousedown="onCellDown(fixture.id, 'type', $event)" @mouseenter="onCellEnter(fixture.id, 'type')" @contextmenu.prevent="openMenu(fixture, 'type', $event)">{{ typeLabel(fixture) }}</td>
+              <td :class="[td, cellClass(fixture, 'mode')]" @mousedown="onCellDown(fixture.id, 'mode', $event)" @mouseenter="onCellEnter(fixture.id, 'mode')" @contextmenu.prevent="openMenu(fixture, 'mode', $event)">{{ modeLabel(fixture) }}</td>
+              <td :class="[td, 'tabular-nums', cellClass(fixture, 'address')]" @mousedown="onCellDown(fixture.id, 'address', $event)" @mouseenter="onCellEnter(fixture.id, 'address')" @contextmenu.prevent="openMenu(fixture, 'address', $event)">{{ patchLabel(fixture) }}</td>
+              <td :class="[td, 'tabular-nums text-zinc-400', cellClass(fixture, 'channels')]" @mousedown="onCellDown(fixture.id, 'channels', $event)" @mouseenter="onCellEnter(fixture.id, 'channels')">{{ channelCount(fixture) }}</td>
             </tr>
             <tr class="cursor-pointer text-zinc-500 hover:bg-zinc-800/60 hover:text-zinc-200" @click="startAdd">
               <td :class="td"></td>
@@ -235,6 +370,8 @@ const tool = 'btn !py-1 text-xs'
       <button :class="tool" :disabled="!selectedFixture" @click="startEdit()">Edit DMX Mode</button>
       <button :class="[tool, 'hover:!border-red-500/60 hover:!bg-red-500/20']" :disabled="!selected.length" @click="deleteSelected">Delete</button>
       <span class="mx-1 h-4 w-px bg-zinc-700"></span>
+      <button :class="tool" :disabled="!rows.length" @click="selected = [...rowOrder]">Select column</button>
+      <button :class="tool" :disabled="!selected.length" @click="selected = []">Clear ({{ selected.length }})</button>
       <button :class="tool" disabled>Cut</button>
       <button :class="tool" disabled>Copy</button>
       <button :class="tool" disabled>Paste</button>
@@ -249,6 +386,48 @@ const tool = 'btn !py-1 text-xs'
       <span class="ml-auto"></span>
       <button :class="tool" :disabled="!rows.length" @click="moveSelection(-1)">Select up</button>
       <button :class="tool" :disabled="!rows.length" @click="moveSelection(1)">Select down</button>
+    </div>
+
+    <div v-if="menu.open" class="fixed inset-0 z-30" @mousedown.self="menu.open = false" @contextmenu.prevent.self="menu.open = false">
+      <form
+        class="absolute grid w-64 gap-2 rounded-lg border border-zinc-700 bg-zinc-900 p-3 text-xs shadow-2xl"
+        :style="{ left: menu.x + 'px', top: menu.y + 'px' }"
+        @submit.prevent="applyMenu"
+      >
+        <div class="font-semibold text-zinc-100">
+          {{ fieldLabels[menu.edit.field] }} · {{ selectedFixtures.length }} fixture{{ selectedFixtures.length === 1 ? '' : 's' }}
+        </div>
+        <select v-if="menu.edit.field === 'type'" v-model="menu.edit.definitionId" class="field" @change="onMenuTypeChange">
+          <option v-for="definition in fixtureLibrary" :key="definition.id" :value="definition.id">
+            {{ definition.manufacturer }} {{ definition.name }}
+          </option>
+        </select>
+        <select v-if="menu.edit.field === 'type' || menu.edit.field === 'mode'" v-model="menu.edit.modeName" class="field">
+          <option v-for="name in menuModes" :key="name" :value="name">{{ name }}</option>
+        </select>
+        <input
+          v-else
+          v-model="menu.edit.text"
+          class="field"
+          :type="menu.edit.field === 'name' ? 'text' : 'number'"
+          autofocus
+          @focus="($event.target as HTMLInputElement).select()"
+        />
+        <label v-if="['number', 'name', 'address'].includes(menu.edit.field) && selectedFixtures.length > 1" class="flex items-center gap-2 text-zinc-400">
+          <input v-model="menu.edit.sequence" type="checkbox" />
+          {{ menu.edit.field === 'name' ? 'Add a running number' : menu.edit.field === 'number' ? 'Count up from this ID' : 'Pack one after another' }}
+        </label>
+        <ul v-if="menuErrors.length" class="list-disc pl-4 text-red-300">
+          <li v-for="error in menuErrors.slice(0, 3)" :key="error">{{ error }}</li>
+        </ul>
+        <div v-if="patch.error" class="text-red-300" role="alert">{{ patch.error }}</div>
+        <div class="flex items-center gap-1">
+          <button type="button" class="btn !py-1 text-xs hover:!border-red-500/60" @click="menu.open = false; deleteSelected()">Delete</button>
+          <span class="ml-auto"></span>
+          <button type="button" class="btn !py-1 text-xs" @click="menu.open = false">Cancel</button>
+          <button class="btn btn-primary !py-1 text-xs" :disabled="!!menuErrors.length">Apply</button>
+        </div>
+      </form>
     </div>
 
     <ShareDialog v-if="sharing" @close="sharing = false" />
