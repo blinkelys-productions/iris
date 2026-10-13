@@ -117,6 +117,28 @@ export const workspace = reactive({
   user: 'Admin',
 })
 
+export interface WorkspaceLayout {
+  views: { windows: PlacedWindow[] }[]
+  activeView: number
+}
+
+export function snapshotLayout(): WorkspaceLayout {
+  return {
+    views: workspace.views.map((view) => ({ windows: view.windows.map((win) => ({ ...win })) })),
+    activeView: workspace.activeView,
+  }
+}
+
+export function applyLayout(layout: WorkspaceLayout | null) {
+  const views: View[] = (layout?.views ?? []).map((view) => ({ windows: view.windows ?? [], focused: null }))
+  while (views.length < INITIAL_VIEWS) views.push(newView())
+  workspace.views = views
+  workspace.activeView = Math.min(Math.max(layout?.activeView ?? 0, 0), views.length - 1)
+  const ids = views.flatMap((view) => view.windows.map((win) => win.id))
+  nextWindowId = Math.max(0, ...ids) + 1
+  workspace.picker = null
+}
+
 export const currentView = computed(() => workspace.views[workspace.activeView]!)
 
 // Patch is a separate page that edits offline, so it hides the programmer panel and view strip.

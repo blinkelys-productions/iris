@@ -11,7 +11,7 @@ import {
   nextFixtureNumber,
   patch,
   removeFixtures,
-  saveFixture,
+  saveFixtures,
   suggestAddress,
   validateFixture,
   type FixtureInstance,
@@ -86,17 +86,18 @@ function fitAddress() {
   if (address !== null) current.startAddress = address
 }
 
-function commit() {
+async function commit() {
   const current = draft.value
   if (!current || draftErrors.value.length) return
+  const batch: FixtureInstance[] = []
   if (!isNew.value) {
-    saveFixture(current)
+    batch.push(current)
   } else {
     const channels = channelCount(current)
     const count = Math.max(1, Math.floor(quantity.value))
     let address = current.startAddress
     for (let i = 0; i < count; i++) {
-      saveFixture({
+      batch.push({
         ...current,
         id: i === 0 ? current.id : newFixtureId(),
         number: current.number + i,
@@ -106,7 +107,7 @@ function commit() {
       address += channels
     }
   }
-  draft.value = null
+  if (await saveFixtures(batch)) draft.value = null
 }
 
 function toggle(id: string, event: MouseEvent) {
@@ -119,9 +120,8 @@ function toggle(id: string, event: MouseEvent) {
   }
 }
 
-function deleteSelected() {
-  removeFixtures(selected.value)
-  selected.value = []
+async function deleteSelected() {
+  if (await removeFixtures(selected.value)) selected.value = []
 }
 
 function moveSelection(delta: number) {
@@ -265,6 +265,7 @@ const tool = 'btn !py-1 text-xs'
           </label>
         </div>
         <button type="button" class="btn !py-1 text-xs" @click="fitAddress">First free</button>
+        <p v-if="patch.error" class="text-xs text-red-400">{{ patch.error }}</p>
         <ul v-if="draftErrors.length" class="list-disc pl-4 text-xs text-red-400">
           <li v-for="error in draftErrors" :key="error">{{ error }}</li>
         </ul>

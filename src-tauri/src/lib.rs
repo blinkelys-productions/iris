@@ -3,6 +3,8 @@ pub mod domain;
 use std::{sync::Arc, time::Duration};
 
 use domain::{
+    ids::StableId,
+    patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
     service::{BackupSummary, ServiceResult, SessionStatus, ShowService, now_ms},
 };
@@ -75,6 +77,35 @@ fn restore_backup(service: Service, id: String) -> ServiceResult<SessionStatus> 
     service.restore_backup(&id)
 }
 
+#[tauri::command]
+fn get_patch(service: Service) -> ServiceResult<Patch> {
+    service.get_patch()
+}
+
+#[tauri::command]
+fn save_fixtures(
+    service: Service,
+    definitions: Vec<FixtureDefinition>,
+    fixtures: Vec<FixtureInstance>,
+) -> ServiceResult<Patch> {
+    service.save_fixtures(definitions, fixtures)
+}
+
+#[tauri::command]
+fn remove_fixtures(service: Service, ids: Vec<StableId>) -> ServiceResult<Patch> {
+    service.remove_fixtures(ids)
+}
+
+#[tauri::command]
+fn get_workspace(service: Service) -> ServiceResult<Option<serde_json::Value>> {
+    service.get_workspace()
+}
+
+#[tauri::command]
+fn set_workspace(service: Service, workspace: serde_json::Value) -> ServiceResult<SessionStatus> {
+    service.set_workspace(workspace)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -112,7 +143,12 @@ pub fn run() {
       restore_quicksave,
       delete_quicksave,
       list_backups,
-      restore_backup
+      restore_backup,
+      get_patch,
+      save_fixtures,
+      remove_fixtures,
+      get_workspace,
+      set_workspace
     ])
     .run(tauri::generate_context!())
     .expect("error while building tauri application");

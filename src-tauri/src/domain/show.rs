@@ -15,6 +15,9 @@ pub struct Show {
     pub id: StableId,
     pub name: String,
     pub patch: Patch,
+    /// Opaque operator-interface layout (views and windows), stored and returned unchanged.
+    #[serde(default)]
+    pub workspace: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +47,7 @@ impl Show {
             id,
             name: name.into(),
             patch: Patch::default(),
+            workspace: None,
         }
     }
 

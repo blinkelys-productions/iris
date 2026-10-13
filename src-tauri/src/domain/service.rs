@@ -9,6 +9,7 @@ use serde::Serialize;
 use super::{
     ids::StableId,
     library::{RecoverySource, ShowLibrary},
+    patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
     session::{SessionSettings, ShowSession},
 };
@@ -99,13 +100,7 @@ impl ShowService {
     pub fn rename(&self, name: &str) -> ServiceResult<SessionStatus> {
         self.with_session(|s| {
             s.edit(|show| show.name = name.to_owned())
-                .map_err(|errors| {
-                    errors
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                })
+                .map_err(join_errors)
         })
     }
 
@@ -157,6 +152,61 @@ impl ShowService {
         self.with_session(|s| s.restore_backup(&id).map_err(|e| e.to_string()))
     }
 
+    pub fn get_patch(&self) -> ServiceResult<Patch> {
+        self.read_session(|s| Ok(s.show().patch.clone()))
+    }
+
+    /// Adds or updates fixtures (matched by id) together with any definitions
+    /// they need, as one atomic edit. Nothing changes if the result is invalid.
+    pub fn save_fixtures(
+        &self,
+        definitions: Vec<FixtureDefinition>,
+        fixtures: Vec<FixtureInstance>,
+    ) -> ServiceResult<Patch> {
+        self.edit_patch(move |patch| {
+            for definition in definitions {
+                match patch
+                    .fixture_definitions
+                    .iter_mut()
+                    .find(|existing| existing.id == definition.id)
+                {
+                    Some(existing) => *existing = definition,
+                    None => patch.fixture_definitions.push(definition),
+                }
+            }
+            for fixture in fixtures {
+                match patch.fixtures.iter_mut().find(|existing| existing.id == fixture.id) {
+                    Some(existing) => *existing = fixture,
+                    None => patch.fixtures.push(fixture),
+                }
+            }
+        })
+    }
+
+    pub fn remove_fixtures(&self, ids: Vec<StableId>) -> ServiceResult<Patch> {
+        self.edit_patch(move |patch| patch.fixtures.retain(|fixture| !ids.contains(&fixture.id)))
+    }
+
+    pub fn get_workspace(&self) -> ServiceResult<Option<serde_json::Value>> {
+        self.read_session(|s| Ok(s.show().workspace.clone()))
+    }
+
+    pub fn set_workspace(&self, workspace: serde_json::Value) -> ServiceResult<SessionStatus> {
+        self.with_session(|s| {
+            s.edit(|show| show.workspace = Some(workspace))
+                .map_err(join_errors)
+        })
+    }
+
+    fn edit_patch(&self, change: impl FnOnce(&mut Patch)) -> ServiceResult<Patch> {
+        let mut guard = self.lock()?;
+        let session = guard.as_mut().ok_or("no show is open")?;
+        session
+            .edit(|show| change(&mut show.patch))
+            .map_err(join_errors)?;
+        Ok(session.show().patch.clone())
+    }
+
     /// Called periodically by the app; returns true when an automatic quicksave was made.
     pub fn tick(&self, now_ms: u64) -> ServiceResult<bool> {
         let mut guard = self.lock()?;
@@ -199,6 +249,14 @@ impl ShowService {
         let guard = self.lock()?;
         action(guard.as_ref().ok_or("no show is open")?)
     }
+}
+
+fn join_errors(errors: Vec<super::show::ShowValidationError>) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn status_of(session: &ShowSession) -> SessionStatus {
@@ -333,6 +391,78 @@ mod tests {
         service.rename("Tour 2").unwrap();
         assert!(service.tick(u64::MAX / 2).unwrap());
         assert_eq!(service.list_quicksaves().unwrap().len(), 1);
+    }
+
+    fn definition() -> FixtureDefinition {
+        FixtureDefinition {
+            id: StableId::new("dimmer").unwrap(),
+            manufacturer: "Generic".into(),
+            name: "Dimmer".into(),
+            modes: vec![super::super::patch::FixtureMode {
+                id: StableId::new("default").unwrap(),
+                name: "Default".into(),
+                channel_count: 4,
+            }],
+        }
+    }
+
+    fn fixture(id: &str, number: u32, address: u16) -> FixtureInstance {
+        FixtureInstance {
+            id: StableId::new(id).unwrap(),
+            number,
+            name: id.into(),
+            definition_id: StableId::new("dimmer").unwrap(),
+            mode_id: StableId::new("default").unwrap(),
+            universe: 1,
+            start_address: address,
+        }
+    }
+
+    #[test]
+    fn patch_edits_are_validated_atomically_and_persist_with_the_show() {
+        let dir = TempDir::new("patch");
+        let service = ShowService::new(&dir.0, "0.1.0");
+        let status = service.new_show("Tour", 1).unwrap();
+
+        let patch = service
+            .save_fixtures(vec![definition()], vec![fixture("a", 1, 1), fixture("b", 2, 5)])
+            .unwrap();
+        assert_eq!(patch.fixtures.len(), 2);
+
+        let error = service
+            .save_fixtures(vec![], vec![fixture("c", 3, 3)])
+            .unwrap_err();
+        assert!(error.contains("overlap"), "{error}");
+        assert_eq!(service.get_patch().unwrap().fixtures.len(), 2);
+
+        let moved = service.save_fixtures(vec![], vec![fixture("b", 2, 9)]).unwrap();
+        assert_eq!(moved.fixtures[1].start_address, 9);
+
+        service.save(2).unwrap();
+        let other = ShowService::new(&dir.0, "0.1.0");
+        other.open_show(status.id.as_str(), 3).unwrap();
+        assert_eq!(other.get_patch().unwrap().fixtures.len(), 2);
+
+        let left = other
+            .remove_fixtures(vec![StableId::new("a").unwrap()])
+            .unwrap();
+        assert_eq!(left.fixtures.len(), 1);
+    }
+
+    #[test]
+    fn workspace_layout_is_stored_in_the_show() {
+        let dir = TempDir::new("workspace");
+        let service = ShowService::new(&dir.0, "0.1.0");
+        let status = service.new_show("Tour", 1).unwrap();
+        assert_eq!(service.get_workspace().unwrap(), None);
+
+        let layout = serde_json::json!({ "views": [{ "windows": [] }], "activeView": 0 });
+        assert!(service.set_workspace(layout.clone()).unwrap().dirty);
+        service.save(2).unwrap();
+
+        let other = ShowService::new(&dir.0, "0.1.0");
+        other.open_show(status.id.as_str(), 3).unwrap();
+        assert_eq!(other.get_workspace().unwrap(), Some(layout));
     }
 
     #[test]

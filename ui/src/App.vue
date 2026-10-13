@@ -12,6 +12,7 @@ import PowerMenu from './components/PowerMenu.vue'
 import SideBar from './components/SideBar.vue'
 import ViewStrip from './components/ViewStrip.vue'
 import WindowFrame from './components/WindowFrame.vue'
+import { bootstrap } from './stores/shows'
 import { currentView, GRID_COLS, GRID_ROWS, isCellFree, onPatchPage, openPicker } from './stores/workspace'
 
 // Recomputed whenever windows change, so occupied cells stop being clickable.
@@ -32,6 +33,7 @@ const gridStyle = computed(() => ({
 let gridObserver: ResizeObserver | undefined
 
 onMounted(() => {
+  bootstrap()
   gridObserver = new ResizeObserver(([entry]) => {
     if (!entry) return
     const gap = 4

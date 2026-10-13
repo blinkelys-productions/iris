@@ -1,6 +1,7 @@
-import { invoke } from '@tauri-apps/api/core'
-import { reactive } from 'vue'
-import { workspace } from './workspace'
+import { reactive, watch } from 'vue'
+import { command, inApp } from './backend'
+import { loadPatch } from './patch'
+import { applyLayout, snapshotLayout, workspace, type WorkspaceLayout } from './workspace'
 
 export interface SessionStatus {
   id: string
@@ -30,7 +31,7 @@ export interface BackupSummary {
 
 export type ShowDialogPage = 'show' | 'quicksave' | 'backup'
 
-export const inApp = '__TAURI_INTERNALS__' in window
+export { inApp }
 
 export const shows = reactive({
   dialog: null as ShowDialogPage | null,
@@ -41,24 +42,39 @@ export const shows = reactive({
   error: '',
 })
 
-async function call<T>(command: string, args?: Record<string, unknown>): Promise<T | undefined> {
+async function call<T>(name: string, args?: Record<string, unknown>): Promise<T | undefined> {
   if (!inApp) {
     shows.error = 'Show storage is only available in the Iris app.'
     return undefined
   }
   try {
     shows.error = ''
-    return await invoke<T>(command, args)
+    return await command<T>(name, args)
   } catch (error) {
     shows.error = String(error)
     return undefined
   }
 }
 
-function adopt(status: SessionStatus | undefined) {
+let lastSyncedLayout = ''
+
+/** Loads the open show's patch and workspace layout into the interface. */
+async function loadSession() {
+  try {
+    await loadPatch()
+    const layout = await command<WorkspaceLayout | null>('get_workspace')
+    applyLayout(layout)
+    lastSyncedLayout = JSON.stringify(snapshotLayout())
+  } catch (error) {
+    shows.error = String(error)
+  }
+}
+
+async function adopt(status: SessionStatus | undefined) {
   if (!status) return false
   shows.status = status
   workspace.showName = status.name
+  await loadSession()
   return true
 }
 
@@ -91,8 +107,42 @@ export function closeShowDialog() {
   shows.dialog = null
 }
 
-async function run(command: string, args?: Record<string, unknown>) {
-  if (adopt(await call<SessionStatus>(command, args))) await refresh()
+async function run(name: string, args?: Record<string, unknown>) {
+  if (await adopt(await call<SessionStatus>(name, args))) await refresh()
+}
+
+/** On startup, reopens the most recent show, or creates one so edits are always stored. */
+export async function bootstrap() {
+  if (!inApp) return
+  const status = await call<SessionStatus | null>('session_status')
+  if (status) {
+    await adopt(status)
+  } else {
+    const list = await call<ShowSummary[]>('list_shows')
+    if (list?.length) await adopt(await call<SessionStatus>('open_show', { id: list[0]!.id }))
+    else await adopt(await call<SessionStatus>('new_show', { name: 'Untitled Show' }))
+  }
+  await refresh()
+  startLayoutSync()
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | undefined
+
+function startLayoutSync() {
+  watch(
+    () => JSON.stringify(snapshotLayout()),
+    (json) => {
+      if (!shows.status || json === lastSyncedLayout) return
+      clearTimeout(syncTimer)
+      syncTimer = setTimeout(async () => {
+        const status = await call<SessionStatus>('set_workspace', { workspace: JSON.parse(json) })
+        if (status) {
+          lastSyncedLayout = json
+          shows.status = status
+        }
+      }, 400)
+    },
+  )
 }
 
 export const newShow = (name: string) => run('new_show', { name })

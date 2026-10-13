@@ -1,4 +1,5 @@
 import { computed, reactive } from 'vue'
+import { command, inApp } from './backend'
 
 export const DMX_SLOTS = 512
 
@@ -31,7 +32,7 @@ export interface PatchConflict {
 }
 
 // Placeholder library until profiles are imported from the Rust GDTF importer.
-export const fixtureLibrary: FixtureDefinition[] = [
+export const fixtureLibrary: FixtureDefinition[] = reactive([
   {
     id: 'generic-dimmer',
     manufacturer: 'Generic',
@@ -62,11 +63,86 @@ export const fixtureLibrary: FixtureDefinition[] = [
       { id: 'extended', name: 'Extended', channelCount: 24 },
     ],
   },
-]
+])
 
 export const patch = reactive({
   fixtures: [] as FixtureInstance[],
+  /** True while edits are stored by the backend with the open show. */
+  synced: false,
+  error: '',
 })
+
+interface WireFixture {
+  id: string
+  number: number
+  name: string
+  definition_id: string
+  mode_id: string
+  universe: number
+  start_address: number
+}
+
+interface WireDefinition {
+  id: string
+  manufacturer: string
+  name: string
+  modes: { id: string; name: string; channel_count: number }[]
+}
+
+interface WirePatch {
+  fixture_definitions: WireDefinition[]
+  fixtures: WireFixture[]
+}
+
+const toWire = (f: FixtureInstance): WireFixture => ({
+  id: f.id,
+  number: f.number,
+  name: f.name,
+  definition_id: f.definitionId,
+  mode_id: f.modeId,
+  universe: f.universe,
+  start_address: f.startAddress,
+})
+
+const definitionToWire = (d: FixtureDefinition): WireDefinition => ({
+  id: d.id,
+  manufacturer: d.manufacturer,
+  name: d.name,
+  modes: d.modes.map((m) => ({ id: m.id, name: m.name, channel_count: m.channelCount })),
+})
+
+/** Replaces the local patch with the backend's, adding any definitions the library lacks. */
+export function applyWirePatch(wire: WirePatch) {
+  for (const d of wire.fixture_definitions) {
+    if (findDefinition(d.id)) continue
+    fixtureLibrary.push({
+      id: d.id,
+      manufacturer: d.manufacturer,
+      name: d.name,
+      modes: d.modes.map((m) => ({ id: m.id, name: m.name, channelCount: m.channel_count })),
+    })
+  }
+  patch.fixtures = wire.fixtures.map((f) => ({
+    id: f.id,
+    number: f.number,
+    name: f.name,
+    definitionId: f.definition_id,
+    modeId: f.mode_id,
+    universe: f.universe,
+    startAddress: f.start_address,
+  }))
+}
+
+export async function loadPatch() {
+  patch.synced = true
+  patch.error = ''
+  applyWirePatch(await command<WirePatch>('get_patch'))
+}
+
+export function clearPatch() {
+  patch.synced = false
+  patch.fixtures = []
+}
 
 export function findDefinition(id: string) {
   return fixtureLibrary.find((definition) => definition.id === id)
@@ -171,14 +247,45 @@ export function suggestAddress(universe: number, channels: number, ignoreId?: st
   return candidate + channels - 1 <= DMX_SLOTS ? candidate : null
 }
 
-export function saveFixture(fixture: FixtureInstance) {
+function saveLocal(fixture: FixtureInstance) {
   const index = patch.fixtures.findIndex((item) => item.id === fixture.id)
   if (index === -1) patch.fixtures.push({ ...fixture })
   else patch.fixtures[index] = { ...fixture }
 }
 
-export function removeFixtures(ids: string[]) {
-  patch.fixtures = patch.fixtures.filter((fixture) => !ids.includes(fixture.id))
+/** Saves fixtures as one change. Resolves false (with `patch.error` set) if the backend rejects it. */
+export async function saveFixtures(fixtures: FixtureInstance[]) {
+  patch.error = ''
+  if (!(inApp && patch.synced)) {
+    fixtures.forEach(saveLocal)
+    return true
+  }
+  const used = new Set(fixtures.map((f) => f.definitionId))
+  const definitions = fixtureLibrary.filter((d) => used.has(d.id)).map(definitionToWire)
+  try {
+    applyWirePatch(
+      await command<WirePatch>('save_fixtures', { definitions, fixtures: fixtures.map(toWire) }),
+    )
+    return true
+  } catch (error) {
+    patch.error = String(error)
+    return false
+  }
+}
+
+export async function removeFixtures(ids: string[]) {
+  patch.error = ''
+  if (!(inApp && patch.synced)) {
+    patch.fixtures = patch.fixtures.filter((fixture) => !ids.includes(fixture.id))
+    return true
+  }
+  try {
+    applyWirePatch(await command<WirePatch>('remove_fixtures', { ids }))
+    return true
+  } catch (error) {
+    patch.error = String(error)
+    return false
+  }
 }
 
 export function newFixtureId() {
