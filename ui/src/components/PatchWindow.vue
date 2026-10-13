@@ -43,11 +43,52 @@ const isNew = ref(false)
 const quantity = ref(1)
 const sharing = ref(false)
 
-const rows = computed(() =>
-  [...patch.fixtures].sort(
-    (a, b) => a.universe - b.universe || a.startAddress - b.startAddress || a.number - b.number,
-  ),
-)
+type SortKey = Column | null
+const sort = reactive({ key: null as SortKey, dir: 1 as 1 | -1 })
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+const byPatch = (a: FixtureInstance, b: FixtureInstance) =>
+  a.universe - b.universe || a.startAddress - b.startAddress || a.number - b.number
+
+function sortValue(fixture: FixtureInstance, key: Column): number | string {
+  switch (key) {
+    case 'number': return fixture.number
+    case 'name': return fixture.name
+    case 'type': return typeLabel(fixture)
+    case 'mode': return modeLabel(fixture)
+    case 'universe':
+    case 'address': return 0
+    case 'channels': return channelCount(fixture)
+  }
+}
+
+const rows = computed(() => {
+  const list = [...patch.fixtures]
+  const key = sort.key
+  if (!key) return list.sort(byPatch)
+  return list.sort((a, b) => {
+    const x = sortValue(a, key)
+    const y = sortValue(b, key)
+    const order = key === 'address' ? byPatch(a, b) : typeof x === 'number' ? x - (y as number) : collator.compare(x, y as string)
+    return (order || byPatch(a, b) * sort.dir) * sort.dir
+  })
+})
+
+/** Click cycles ascending, descending, then back to patch order. */
+function sortBy(key: Column) {
+  if (sort.key !== key) {
+    sort.key = key
+    sort.dir = 1
+  } else if (sort.dir === 1) {
+    sort.dir = -1
+  } else {
+    sort.key = null
+    sort.dir = 1
+  }
+}
+
+const ariaSort = (key: Column) => (sort.key !== key ? 'none' : sort.dir === 1 ? 'ascending' : 'descending')
+const arrow = (key: Column) => (sort.key !== key ? '' : sort.dir === 1 ? '▲' : '▼')
 const draftErrors = computed(() => (draft.value ? validateFixture(draft.value) : []))
 const draftDefinition = computed(() =>
   draft.value ? findDefinition(draft.value.definitionId) : undefined,
@@ -323,12 +364,12 @@ const tool = 'btn !py-1 text-xs'
         <table class="w-full select-none border-collapse text-sm">
           <thead class="sticky top-0 bg-zinc-900">
             <tr class="border-b border-zinc-800">
-              <th :class="[th, 'w-16']">FID</th>
-              <th :class="th">Name</th>
-              <th :class="th">Fixture Type</th>
-              <th :class="th">Mode</th>
-              <th :class="[th, 'w-24']">Patch</th>
-              <th :class="[th, 'w-14']">Ch</th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100', 'w-16']" :aria-sort="ariaSort('number')" @click="sortBy('number')">FID <span class="text-accent">{{ arrow('number') }}</span></th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100']" :aria-sort="ariaSort('name')" @click="sortBy('name')">Name <span class="text-accent">{{ arrow('name') }}</span></th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100']" :aria-sort="ariaSort('type')" @click="sortBy('type')">Fixture Type <span class="text-accent">{{ arrow('type') }}</span></th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100']" :aria-sort="ariaSort('mode')" @click="sortBy('mode')">Mode <span class="text-accent">{{ arrow('mode') }}</span></th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100', 'w-24']" :aria-sort="ariaSort('address')" @click="sortBy('address')">Patch <span class="text-accent">{{ arrow('address') }}</span></th>
+              <th :class="[th, 'cursor-pointer hover:text-zinc-100', 'w-14']" :aria-sort="ariaSort('channels')" @click="sortBy('channels')">Ch <span class="text-accent">{{ arrow('channels') }}</span></th>
             </tr>
           </thead>
           <tbody>
