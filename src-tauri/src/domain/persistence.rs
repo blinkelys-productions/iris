@@ -13,6 +13,52 @@ pub const SHOW_FILE_EXTENSION: &str = "iris";
 pub const SHOW_FILE_NAME: &str = "show.iris";
 pub const DEFAULT_MAX_QUICKSAVES: usize = 20;
 
+/// One upgrade step, rewriting a whole show file (envelope included) in place.
+pub type Migration = fn(&mut serde_json::Value) -> Result<(), String>;
+
+/// `MIGRATIONS[n]` upgrades a file from format version `n + 1` to `n + 2`. Add an
+/// entry here whenever `CURRENT_SHOW_FORMAT_VERSION` is raised.
+pub const MIGRATIONS: &[Migration] = &[];
+
+/// Upgrades an older show file to `current`. Files already at or beyond `current`
+/// are left alone, so validation can report them.
+pub fn migrate(
+    file: &mut serde_json::Value,
+    migrations: &[Migration],
+    current: u32,
+) -> Result<(), PersistenceError> {
+    let version_of = |value: &serde_json::Value| {
+        value
+            .get("format_version")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
+    };
+    // Foreign files without a version are rejected later with a clearer message.
+    let Some(mut version) = version_of(file) else {
+        return Ok(());
+    };
+    if file.get("format").and_then(serde_json::Value::as_str) != Some(SHOW_FILE_FORMAT) {
+        return Ok(());
+    }
+    if version == 0 {
+        return Err(PersistenceError::Decode("format version 0 is not valid".to_owned()));
+    }
+    while version < current {
+        let step = migrations.get(version as usize - 1).ok_or_else(|| {
+            PersistenceError::Decode(format!("no migration from format version {version}"))
+        })?;
+        step(file).map_err(|message| {
+            PersistenceError::Decode(format!("migrating from version {version} failed: {message}"))
+        })?;
+        version += 1;
+        file["format_version"] = version.into();
+        if let Some(show) = file.get_mut("show") {
+            show["format_version"] = version.into();
+        }
+    }
+    Ok(())
+}
+
 /// The on-disk wrapper around a [`Show`]. Timestamps are supplied by the caller
 /// (milliseconds since the Unix epoch) so the model stays deterministic.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -65,7 +111,10 @@ impl ShowFile {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, PersistenceError> {
-        let file: Self = serde_json::from_slice(bytes)
+        let mut value: serde_json::Value = serde_json::from_slice(bytes)
+            .map_err(|error| PersistenceError::Decode(error.to_string()))?;
+        migrate(&mut value, MIGRATIONS, super::show::CURRENT_SHOW_FORMAT_VERSION)?;
+        let file: Self = serde_json::from_value(value)
             .map_err(|error| PersistenceError::Decode(error.to_string()))?;
         file.validate()?;
         Ok(file)
@@ -282,6 +331,36 @@ impl std::error::Error for PersistenceError {}
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn migrates_old_files_step_by_step_and_leaves_current_ones() {
+        fn rename_title(file: &mut serde_json::Value) -> Result<(), String> {
+            let title = file["show"]["title"].take();
+            file["show"]["name"] = title;
+            Ok(())
+        }
+        fn fail(_: &mut serde_json::Value) -> Result<(), String> {
+            Err("boom".to_owned())
+        }
+        let old = serde_json::json!({
+            "format": SHOW_FILE_FORMAT,
+            "format_version": 1,
+            "show": { "format_version": 1, "title": "Old" }
+        });
+
+        let mut migrated = old.clone();
+        migrate(&mut migrated, &[rename_title], 2).unwrap();
+        assert_eq!(migrated["format_version"], 2);
+        assert_eq!(migrated["show"]["format_version"], 2);
+        assert_eq!(migrated["show"]["name"], "Old");
+
+        let mut current = old.clone();
+        migrate(&mut current, &[rename_title], 1).unwrap();
+        assert_eq!(current, old);
+
+        assert!(migrate(&mut old.clone(), &[], 2).is_err());
+        assert!(migrate(&mut old.clone(), &[fail], 2).is_err());
+    }
+
     use super::*;
 
     fn id(value: &str) -> StableId {

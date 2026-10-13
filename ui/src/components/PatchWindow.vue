@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { inApp } from '../stores/backend'
+import { exportMvr, exportPatchPdf, importGdtf, importMvr } from '../stores/interchange'
 import {
   channelCount,
   conflictedIds,
@@ -46,7 +48,11 @@ const selectedFixture = computed(() =>
 )
 
 function startAdd() {
-  const definition = fixtureLibrary[0]!
+  const definition = fixtureLibrary[0]
+  if (!definition) {
+    patch.error = 'Import a GDTF fixture profile before adding fixtures.'
+    return
+  }
   const mode = definition.modes[0]!
   const universe = rows.value.at(-1)?.universe ?? 1
   isNew.value = true
@@ -212,6 +218,9 @@ const tool = 'btn !py-1 text-xs'
       </div>
     </div>
 
+    <div v-if="patch.notice && !draft" class="mx-1 mb-1 rounded-md border border-zinc-700 bg-zinc-800/60 px-3 py-2 text-xs text-zinc-300">{{ patch.notice }}</div>
+    <div v-if="patch.error && !draft" class="mx-1 mb-1 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300" role="alert">{{ patch.error }}</div>
+
     <div v-if="conflicts.length" class="mx-1 mb-1 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300" role="alert">
       <strong>{{ conflicts.length }} conflict{{ conflicts.length === 1 ? '' : 's' }}</strong>
       <ul class="mt-1 list-disc pl-4">
@@ -229,7 +238,10 @@ const tool = 'btn !py-1 text-xs'
       <button :class="tool" disabled>Paste</button>
       <span class="mx-1 h-4 w-px bg-zinc-700"></span>
       <button :class="tool" disabled>Patch</button>
-      <button :class="tool" disabled>Export</button>
+      <button :class="tool" :disabled="!inApp" @click="importGdtf">Import GDTF</button>
+      <button :class="tool" :disabled="!inApp" @click="importMvr">Import MVR</button>
+      <button :class="tool" :disabled="!inApp || !patch.fixtures.length" @click="exportMvr">Export MVR</button>
+      <button :class="tool" :disabled="!inApp || !patch.fixtures.length" @click="exportPatchPdf">Export PDF</button>
       <button :class="tool" disabled>Create Multipatch</button>
       <span class="ml-auto"></span>
       <button :class="tool" :disabled="!rows.length" @click="moveSelection(-1)">Select up</button>

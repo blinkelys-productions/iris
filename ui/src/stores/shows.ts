@@ -1,6 +1,6 @@
 import { reactive, watch } from 'vue'
 import { command, inApp } from './backend'
-import { loadPatch } from './patch'
+import { loadPatch, loadProfiles } from './patch'
 import { applyLayout, snapshotLayout, workspace, type WorkspaceLayout } from './workspace'
 
 export interface SessionStatus {
@@ -61,6 +61,7 @@ let lastSyncedLayout = ''
 /** Loads the open show's patch and workspace layout into the interface. */
 async function loadSession() {
   try {
+    await loadProfiles()
     await loadPatch()
     const layout = await command<WorkspaceLayout | null>('get_workspace')
     applyLayout(layout)

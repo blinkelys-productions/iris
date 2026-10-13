@@ -6,7 +6,7 @@ use domain::{
     ids::StableId,
     patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
-    service::{BackupSummary, ServiceResult, SessionStatus, ShowService, now_ms},
+    service::{BackupSummary, MvrImportResult, ServiceResult, SessionStatus, ShowService, now_ms},
 };
 use tauri::{Manager, State};
 
@@ -97,6 +97,31 @@ fn remove_fixtures(service: Service, ids: Vec<StableId>) -> ServiceResult<Patch>
 }
 
 #[tauri::command]
+fn list_profiles(service: Service) -> ServiceResult<Vec<FixtureDefinition>> {
+    service.list_profiles()
+}
+
+#[tauri::command]
+fn import_gdtf(service: Service, path: String) -> ServiceResult<FixtureDefinition> {
+    service.import_gdtf_file(path.as_ref())
+}
+
+#[tauri::command]
+fn import_mvr(service: Service, path: String) -> ServiceResult<MvrImportResult> {
+    service.import_mvr_file(path.as_ref())
+}
+
+#[tauri::command]
+fn export_mvr(service: Service, path: String) -> ServiceResult<()> {
+    service.export_mvr_file(path.as_ref())
+}
+
+#[tauri::command]
+fn export_patch_pdf(service: Service, path: String) -> ServiceResult<()> {
+    service.export_patch_pdf_file(path.as_ref())
+}
+
+#[tauri::command]
 fn get_workspace(service: Service) -> ServiceResult<Option<serde_json::Value>> {
     service.get_workspace()
 }
@@ -118,8 +143,11 @@ pub fn run() {
         )?;
       }
 
-      let library_dir = app.path().app_data_dir()?.join("shows");
-      let service = Arc::new(ShowService::new(library_dir, env!("CARGO_PKG_VERSION")));
+      let data_dir = app.path().app_data_dir()?;
+      let service = Arc::new(
+        ShowService::new(data_dir.join("shows"), env!("CARGO_PKG_VERSION"))
+          .with_profiles_dir(data_dir.join("profiles")),
+      );
       app.manage(Arc::clone(&service));
 
       std::thread::spawn(move || loop {
@@ -128,6 +156,7 @@ pub fn run() {
           log::warn!("automatic quicksave failed: {error}");
         }
       });
+      app.handle().plugin(tauri_plugin_dialog::init())?;
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -147,6 +176,11 @@ pub fn run() {
       get_patch,
       save_fixtures,
       remove_fixtures,
+      list_profiles,
+      import_gdtf,
+      import_mvr,
+      export_mvr,
+      export_patch_pdf,
       get_workspace,
       set_workspace
     ])

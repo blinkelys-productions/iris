@@ -21,7 +21,7 @@ Before wiring the UI to the backend, define how shows are stored. Work happens i
 - [x] Crash and corruption recovery: a corrupt show file is moved aside and replaced by the newest valid backup or quicksave; opening a show reports when this happened.
 - [x] Run the automatic quicksave timer in the app (every 15 s, policy in the session) and store shows under the app data directory.
 - [x] Tauri commands for shows, quicksaves and backups (`service.rs` facade plus thin commands in `lib.rs`).
-- [ ] Format migrations between show format versions.
+- [x] Format migrations between show format versions (`MIGRATIONS` table in `persistence.rs`; empty while the format is at version 1).
 - [x] Wire the Menu's Show, Backup and Quick Save tiles to the commands (`ShowDialog.vue`, `stores/shows.ts`); Cmd/Ctrl+S saves. Only works inside the Tauri app.
 - [x] Persist the workspace layout (views and windows) and the patch in the show file, so loading restores them.
 - [x] Connect the patch UI to the Rust patch model via Tauri commands (`get_patch`, `save_fixtures`, `remove_fixtures`); edits are validated by the backend and stored with the open show.
@@ -41,7 +41,9 @@ Before wiring the UI to the backend, define how shows are stored. Work happens i
 - [x] Export a printable patch list as PDF.
 - [x] Build the UI shell: grandMA3-style workspace (icon rail, dotted workspace, 8-view strip, command bar, programmer panel placeholder) and main menu.
 - [x] Add a patch window with add/edit/delete and live conflict reporting (local state only).
-- [ ] Replace the placeholder fixture library with profiles imported through the Rust GDTF importer (patch editing itself is already backend-backed).
+- [x] Replace the placeholder fixture library with profiles imported through the Rust GDTF importer (stored in `<app data>/profiles`; the placeholders remain only for the browser preview).
+- [x] Patch window: Import GDTF, Import MVR, Export MVR and Export PDF via Tauri commands and native file dialogs.
+- [ ] Run the real Tauri app end to end (`cargo tauri dev`): show create/save/reopen, patch edits, imports and exports. Not yet done.
 
 ## 2. Programming data and attributes
 

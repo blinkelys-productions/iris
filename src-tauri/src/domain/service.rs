@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -8,7 +8,10 @@ use serde::Serialize;
 
 use super::{
     ids::StableId,
+    interchange::{self, InterchangeWarning},
     library::{RecoverySource, ShowLibrary},
+    patch_pdf,
+    profiles::ProfileStore,
     patch::{FixtureDefinition, FixtureInstance, Patch},
     persistence::{QuicksaveSummary, ShowSummary},
     session::{SessionSettings, ShowSession},
@@ -34,8 +37,31 @@ pub struct BackupSummary {
 /// the only thing Tauri commands touch, and reports errors as display strings.
 pub struct ShowService {
     library: ShowLibrary,
+    profiles: ProfileStore,
     settings: SessionSettings,
     session: Mutex<Option<ShowSession>>,
+}
+
+/// Outcome of merging an MVR file into the open show.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct MvrImportResult {
+    pub patch: Patch,
+    pub fixtures_added: usize,
+    pub warnings: Vec<String>,
+}
+
+fn read_file(path: &Path) -> ServiceResult<Vec<u8>> {
+    std::fs::read(path).map_err(|e| format!("could not read {}: {e}", path.display()))
+}
+
+fn write_file(path: &Path, bytes: &[u8]) -> ServiceResult<()> {
+    std::fs::write(path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 pub type ServiceResult<T> = Result<T, String>;
@@ -50,11 +76,21 @@ pub fn now_ms() -> u64 {
 impl ShowService {
     pub fn new(root: impl Into<PathBuf>, app_version: &str) -> Self {
         let root = root.into();
+        let mut profiles_name = root.file_name().unwrap_or_default().to_os_string();
+        profiles_name.push(".profiles");
+        let profiles = ProfileStore::new(root.with_file_name(profiles_name));
         Self {
             library: ShowLibrary::new(root),
+            profiles,
             settings: SessionSettings::new(app_version),
             session: Mutex::new(None),
         }
+    }
+
+    /// Stores imported GDTF profiles in `dir` instead of next to the show library.
+    pub fn with_profiles_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.profiles = ProfileStore::new(dir);
+        self
     }
 
     pub fn list_shows(&self) -> ServiceResult<Vec<ShowSummary>> {
@@ -185,6 +221,62 @@ impl ShowService {
 
     pub fn remove_fixtures(&self, ids: Vec<StableId>) -> ServiceResult<Patch> {
         self.edit_patch(move |patch| patch.fixtures.retain(|fixture| !ids.contains(&fixture.id)))
+    }
+
+    /// Imports a GDTF file into the console-wide profile library.
+    pub fn import_gdtf_file(&self, path: &Path) -> ServiceResult<FixtureDefinition> {
+        let bytes = read_file(path)?;
+        let name = file_name(path);
+        let imported = interchange::import_gdtf(name, bytes).map_err(|e| e.to_string())?;
+        self.profiles.save(&imported).map_err(|e| e.to_string())?;
+        Ok(imported.definition)
+    }
+
+    pub fn list_profiles(&self) -> ServiceResult<Vec<FixtureDefinition>> {
+        self.profiles.list().map_err(|e| e.to_string())
+    }
+
+    /// Imports an MVR file into the open show, keeping its GDTF profiles. The patch
+    /// is unchanged if the imported fixtures would not fit.
+    pub fn import_mvr_file(&self, path: &Path) -> ServiceResult<MvrImportResult> {
+        let imported = interchange::import_mvr(&read_file(path)?).map_err(|e| e.to_string())?;
+        let fixtures_added = imported.patch.fixtures.len();
+        let patch = self.save_fixtures(
+            imported.patch.fixture_definitions.clone(),
+            imported.patch.fixtures.clone(),
+        )?;
+        for archive in imported.gdtf_archives.values() {
+            self.profiles.save(archive).map_err(|e| e.to_string())?;
+        }
+        let warnings = imported
+            .warnings
+            .iter()
+            .map(|warning| match warning {
+                InterchangeWarning::MvrSceneDataNotRepresented => {
+                    "Scene geometry and fixture positions in the MVR file were not imported."
+                        .to_owned()
+                }
+            })
+            .collect();
+        Ok(MvrImportResult {
+            patch,
+            fixtures_added,
+            warnings,
+        })
+    }
+
+    pub fn export_mvr_file(&self, path: &Path) -> ServiceResult<()> {
+        let patch = self.get_patch()?;
+        let ids: Vec<StableId> = patch.fixture_definitions.iter().map(|d| d.id.clone()).collect();
+        let archives = self.profiles.archives(&ids);
+        let bytes = interchange::export_mvr(&patch, &archives).map_err(|e| e.to_string())?;
+        write_file(path, &bytes)
+    }
+
+    pub fn export_patch_pdf_file(&self, path: &Path) -> ServiceResult<()> {
+        let (name, patch) = self.read_session(|s| Ok((s.show().name.clone(), s.show().patch.clone())))?;
+        let bytes = patch_pdf::export_patch_list_pdf(&name, &patch).map_err(|e| e.to_string())?;
+        write_file(path, &bytes)
     }
 
     pub fn get_workspace(&self) -> ServiceResult<Option<serde_json::Value>> {
@@ -463,6 +555,45 @@ mod tests {
         let other = ShowService::new(&dir.0, "0.1.0");
         other.open_show(status.id.as_str(), 3).unwrap();
         assert_eq!(other.get_workspace().unwrap(), Some(layout));
+    }
+
+    #[test]
+    fn gdtf_and_mvr_round_trip_through_the_service_and_pdf_exports() {
+        let dir = TempDir::new("interchange");
+        let service = ShowService::new(&dir.0, "0.1.0");
+        service.new_show("Interchange", 1).unwrap();
+
+        let gdtf_path = dir.0.join("fixture.gdtf");
+        fs::create_dir_all(&dir.0).unwrap();
+        fs::write(&gdtf_path, crate::domain::interchange::tests::gdtf_archive()).unwrap();
+        let imported = service.import_gdtf_file(&gdtf_path).unwrap();
+        assert_eq!(service.list_profiles().unwrap(), vec![imported.clone()]);
+
+        let mode = imported.modes[0].id.clone();
+        let instance = FixtureInstance {
+            id: StableId::new("f1").unwrap(),
+            number: 1,
+            name: "Front".to_owned(),
+            definition_id: imported.id.clone(),
+            mode_id: mode,
+            universe: 1,
+            start_address: 1,
+        };
+        service.save_fixtures(vec![imported.clone()], vec![instance]).unwrap();
+
+        let mvr_path = dir.0.join("out.mvr");
+        service.export_mvr_file(&mvr_path).unwrap();
+        let pdf_path = dir.0.join("out.pdf");
+        service.export_patch_pdf_file(&pdf_path).unwrap();
+        assert!(fs::read(&pdf_path).unwrap().starts_with(b"%PDF"));
+
+        service.new_show("Other", 2).unwrap();
+        let result = service.import_mvr_file(&mvr_path).unwrap();
+        assert_eq!(result.fixtures_added, 1);
+        assert_eq!(result.patch.fixtures.len(), 1);
+        assert_eq!(service.get_patch().unwrap().fixture_definitions.len(), 1);
+
+        assert!(service.import_mvr_file(&dir.0.join("missing.mvr")).is_err());
     }
 
     #[test]

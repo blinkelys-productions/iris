@@ -4,6 +4,7 @@ pub mod ids;
 pub mod interchange;
 pub mod library;
 pub mod patch;
+pub mod profiles;
 pub mod patch_pdf;
 pub mod persistence;
 pub mod runtime;

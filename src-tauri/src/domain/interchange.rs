@@ -750,7 +750,7 @@ fn xml_escape(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const MINIMAL_GDTF_XML: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -778,7 +778,7 @@ mod tests {
   </FixtureType>
 </GDTF>"#;
 
-    fn gdtf_archive() -> Vec<u8> {
+    pub(crate) fn gdtf_archive() -> Vec<u8> {
         let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
         writer
             .start_file(

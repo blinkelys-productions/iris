@@ -412,7 +412,7 @@ fn ensure_safe(id: &StableId) -> Result<(), PersistenceError> {
     }
 }
 
-fn io_error(path: &Path, error: io::Error) -> PersistenceError {
+pub(super) fn io_error(path: &Path, error: io::Error) -> PersistenceError {
     PersistenceError::Io {
         path: path.display().to_string(),
         message: error.to_string(),
@@ -455,7 +455,7 @@ fn files_in(dir: &Path) -> Result<Vec<PathBuf>, PersistenceError> {
     Ok(files)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PersistenceError> {
+pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), PersistenceError> {
     use io::Write;
 
     let parent = path.parent().unwrap_or_else(|| Path::new("."));

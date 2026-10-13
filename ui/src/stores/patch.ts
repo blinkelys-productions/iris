@@ -31,8 +31,8 @@ export interface PatchConflict {
   message: string
 }
 
-// Placeholder library until profiles are imported from the Rust GDTF importer.
-export const fixtureLibrary: FixtureDefinition[] = reactive([
+// Stand-ins for the browser preview; in the app the library comes from imported GDTF profiles.
+const placeholderLibrary: FixtureDefinition[] = [
   {
     id: 'generic-dimmer',
     manufacturer: 'Generic',
@@ -63,13 +63,16 @@ export const fixtureLibrary: FixtureDefinition[] = reactive([
       { id: 'extended', name: 'Extended', channelCount: 24 },
     ],
   },
-])
+]
+
+export const fixtureLibrary: FixtureDefinition[] = reactive(inApp ? [] : placeholderLibrary)
 
 export const patch = reactive({
   fixtures: [] as FixtureInstance[],
   /** True while edits are stored by the backend with the open show. */
   synced: false,
   error: '',
+  notice: '',
 })
 
 interface WireFixture {
@@ -131,6 +134,36 @@ export function applyWirePatch(wire: WirePatch) {
     universe: f.universe,
     startAddress: f.start_address,
   }))
+}
+
+function addToLibrary(d: WireDefinition) {
+  const definition: FixtureDefinition = {
+    id: d.id,
+    manufacturer: d.manufacturer,
+    name: d.name,
+    modes: d.modes.map((m) => ({ id: m.id, name: m.name, channelCount: m.channel_count })),
+  }
+  const index = fixtureLibrary.findIndex((existing) => existing.id === d.id)
+  if (index === -1) fixtureLibrary.push(definition)
+  else fixtureLibrary[index] = definition
+}
+
+/** Loads every imported GDTF profile into the library. */
+export async function loadProfiles() {
+  for (const d of await command<WireDefinition[]>('list_profiles')) addToLibrary(d)
+}
+
+export async function importGdtfFile(path: string) {
+  addToLibrary(await command<WireDefinition>('import_gdtf', { path }))
+}
+
+export async function importMvrFile(path: string) {
+  const result = await command<{ patch: WirePatch; fixtures_added: number; warnings: string[] }>(
+    'import_mvr',
+    { path },
+  )
+  applyWirePatch(result.patch)
+  return result
 }
 
 export async function loadPatch() {
