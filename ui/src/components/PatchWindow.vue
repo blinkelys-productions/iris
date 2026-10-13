@@ -5,6 +5,7 @@ import ShareDialog from './ShareDialog.vue'
 import {
   applyBulkEdit,
   fieldLabels,
+  numberedName,
   rangeBetween,
   type BulkEdit,
   type BulkField,
@@ -157,7 +158,7 @@ async function commit() {
         ...current,
         id: i === 0 ? current.id : newFixtureId(),
         number: current.number + i,
-        name: count > 1 ? `${current.name} ${i + 1}` : current.name,
+        name: numberedName(current.name, i),
         startAddress: address,
       })
       address += channels
@@ -454,9 +455,9 @@ const tool = 'btn !py-1 text-xs'
           autofocus
           @focus="($event.target as HTMLInputElement).select()"
         />
-        <label v-if="['number', 'name', 'address'].includes(menu.edit.field) && selectedFixtures.length > 1" class="flex items-center gap-2 text-zinc-400">
+        <label v-if="['number', 'address'].includes(menu.edit.field) && selectedFixtures.length > 1" class="flex items-center gap-2 text-zinc-400">
           <input v-model="menu.edit.sequence" type="checkbox" />
-          {{ menu.edit.field === 'name' ? 'Add a running number' : menu.edit.field === 'number' ? 'Count up from this ID' : 'Pack one after another' }}
+          {{ menu.edit.field === 'number' ? 'Count up from this ID' : 'Pack one after another' }}
         </label>
         <ul v-if="menuErrors.length" class="list-disc pl-4 text-red-300">
           <li v-for="error in menuErrors.slice(0, 3)" :key="error">{{ error }}</li>

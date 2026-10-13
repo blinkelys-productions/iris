@@ -37,6 +37,14 @@ function withMode(fixture: FixtureInstance, definitionId: string, modeName: stri
   return mode ? { ...fixture, definitionId, modeId: mode.id } : fixture
 }
 
+/** Counts up a trailing number ("Quantum 1" -> "Quantum 2"); names without one are left as typed. */
+export function numberedName(name: string, offset: number) {
+  const match = /^(.*?)(\d+)$/.exec(name.trim())
+  if (!match) return name.trim()
+  const digits = match[2]!
+  return `${match[1]}${String(Number(digits) + offset).padStart(digits.length, '0')}`
+}
+
 /** Applies one edit to fixtures that are already in display order; returns new objects. */
 export function applyBulkEdit(fixtures: FixtureInstance[], edit: BulkEdit): FixtureInstance[] {
   const value = Number(edit.text)
@@ -48,7 +56,7 @@ export function applyBulkEdit(fixtures: FixtureInstance[], edit: BulkEdit): Fixt
         return { ...fixture, number: value + (sequential ? index : 0) }
       case 'name': {
         const name = edit.text.trim()
-        return { ...fixture, name: sequential ? `${name} ${index + 1}` : name }
+        return { ...fixture, name: numberedName(name, index) }
       }
       case 'universe':
         return { ...fixture, universe: value }
